@@ -1,0 +1,6 @@
+target/
+.anchor/
+node_modules/
+.env
+.env.local
+dusk-prd.pdf
