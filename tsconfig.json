@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "types": ["mocha", "node"],
+    "target": "es2019",
+    "module": "commonjs",
+    "strict": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node"
+  }
+}

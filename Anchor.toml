@@ -1,5 +1,3 @@
-skip_local_validator = true
-
 [toolchain]
 
 [features]
@@ -15,6 +13,6 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "cargo test"
+test = "npx mocha tests/**/*.test.cjs"
 
 [hooks]
