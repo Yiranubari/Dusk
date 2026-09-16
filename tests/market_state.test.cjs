@@ -40,10 +40,11 @@ describe("Market State Program Tests", () => {
       const marketPda = await deriveMarketPda(marketId);
 
       await program.methods
-        .initializeMarket(marketId)
+        .initializeMarket(marketId, new anchor.BN(500), new anchor.BN(3600))
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
+          priceFeed: null,
           systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc();
@@ -52,31 +53,30 @@ describe("Market State Program Tests", () => {
       assert.equal(acct.marketId, marketId);
       assert.isTrue(wallet.publicKey.equals(acct.authority));
       assert.isTrue(acct.state.stale !== undefined);
+      assert.equal(acct.confidenceThreshold.toNumber(), 500);
+      assert.equal(acct.maxFeedAge.toNumber(), 3600);
       assert.isNumber(acct.lastUpdateTs.toNumber());
       assert.isNumber(acct.createdAt.toNumber());
     });
 
     it("Fails when market ID exceeds max length (16 chars)", async () => {
-            const longMarketId = "THIS_IS_TOO_LONG_";
+      const longMarketId = "THIS_IS_TOO_LONG_";
       const marketPda = await deriveMarketPda(longMarketId);
 
       try {
         await program.methods
-          .initializeMarket(longMarketId)
+          .initializeMarket(longMarketId, new anchor.BN(500), new anchor.BN(3600))
           .accounts({
             market: marketPda,
             authority: wallet.publicKey,
+            priceFeed: null,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc();
         assert.fail("Should have thrown an error for too-long market ID");
       } catch (err) {
         const errStr = JSON.stringify(err);
-        const hasError =
-          errStr.includes("MarketIdTooLong") ||
-          errStr.includes("6005") ||
-          errStr.includes("custom program error");
-        assert.isTrue(hasError, "Expected MarketIdTooLong error but got: " + errStr);
+        assert.include(errStr, "MarketIdTooLong");
       }
     });
 
@@ -85,10 +85,11 @@ describe("Market State Program Tests", () => {
       const marketPda = await deriveMarketPda(marketId);
 
       await program.methods
-        .initializeMarket(marketId)
+        .initializeMarket(marketId, new anchor.BN(500), new anchor.BN(3600))
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
+          priceFeed: null,
           systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc();
@@ -103,26 +104,28 @@ describe("Market State Program Tests", () => {
       const marketPda = await deriveMarketPda(marketId);
 
       await program.methods
-        .initializeMarket(marketId)
+        .initializeMarket(marketId, new anchor.BN(500), new anchor.BN(3600))
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
+          priceFeed: null,
           systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc();
 
       try {
         await program.methods
-          .initializeMarket(marketId)
+          .initializeMarket(marketId, new anchor.BN(500), new anchor.BN(3600))
           .accounts({
             market: marketPda,
             authority: wallet.publicKey,
+            priceFeed: null,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc();
         assert.fail("Should fail because market already exists");
       } catch (err) {
-                assert.include(JSON.stringify(err).toLowerCase(), "already in use");
+        assert.include(JSON.stringify(err).toLowerCase(), "already in use");
       }
     });
   });
@@ -137,10 +140,11 @@ describe("Market State Program Tests", () => {
       const existing = await provider.connection.getAccountInfo(marketPda);
       if (!existing) {
         await program.methods
-          .initializeMarket(testMarketId)
+          .initializeMarket(testMarketId, new anchor.BN(500), new anchor.BN(3600))
           .accounts({
             market: marketPda,
             authority: wallet.publicKey,
+            priceFeed: null,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc();
@@ -151,7 +155,11 @@ describe("Market State Program Tests", () => {
     it("Stale -> Open", async () => {
       await program.methods
         .updateMarketState({ open: true })
-        .accounts({ market: marketPda, authority: wallet.publicKey })
+        .accounts({
+          market: marketPda,
+          authority: wallet.publicKey,
+          priceFeed: null,
+        })
         .rpc();
       const acct = await program.account.market.fetch(marketPda);
       assert.isTrue(acct.state.open !== undefined);
@@ -160,7 +168,11 @@ describe("Market State Program Tests", () => {
     it("Stale -> Closed", async () => {
       await program.methods
         .updateMarketState({ closed: true })
-        .accounts({ market: marketPda, authority: wallet.publicKey })
+        .accounts({
+          market: marketPda,
+          authority: wallet.publicKey,
+          priceFeed: null,
+        })
         .rpc();
       const acct = await program.account.market.fetch(marketPda);
       assert.isTrue(acct.state.closed !== undefined);
@@ -169,7 +181,11 @@ describe("Market State Program Tests", () => {
     it("Back to Stale", async () => {
       await program.methods
         .updateMarketState({ stale: true })
-        .accounts({ market: marketPda, authority: wallet.publicKey })
+        .accounts({
+          market: marketPda,
+          authority: wallet.publicKey,
+          priceFeed: null,
+        })
         .rpc();
       const acct = await program.account.market.fetch(marketPda);
       assert.isTrue(acct.state.stale !== undefined);
@@ -180,13 +196,52 @@ describe("Market State Program Tests", () => {
       try {
         await program.methods
           .updateMarketState({ open: true })
-          .accounts({ market: marketPda, authority: unauth.publicKey })
+          .accounts({
+            market: marketPda,
+            authority: unauth.publicKey,
+            priceFeed: null,
+          })
           .signers([unauth])
           .rpc();
         assert.fail("Should have failed");
       } catch (err) {
         assert.include(JSON.stringify(err), "Unauthorized");
       }
+    });
+
+    it("Force a state change and confirm on-chain account reflects it", async () => {
+      // Change state to Open
+      await program.methods
+        .updateMarketState({ open: true })
+        .accounts({
+          market: marketPda,
+          authority: wallet.publicKey,
+          priceFeed: null,
+        })
+        .rpc();
+
+      const acctBefore = await program.account.market.fetch(marketPda);
+      assert.isTrue(acctBefore.state.open !== undefined);
+      assert.isFalse(acctBefore.state.stale !== undefined);
+
+      await delay(2000);
+
+      // Change state to Closed
+      await program.methods
+        .updateMarketState({ closed: true })
+        .accounts({
+          market: marketPda,
+          authority: wallet.publicKey,
+          priceFeed: null,
+        })
+        .rpc();
+
+      const acctAfter = await program.account.market.fetch(marketPda);
+      assert.isTrue(acctAfter.state.closed !== undefined);
+      assert.isAbove(
+        acctAfter.lastUpdateTs.toNumber(),
+        acctBefore.lastUpdateTs.toNumber()
+      );
     });
   });
 });

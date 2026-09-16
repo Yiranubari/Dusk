@@ -6,4 +6,6 @@ pub enum MarketStateErrorCode {
     MarketIdTooLong,
     #[msg("Caller is not authorized to update market state")]
     Unauthorized,
+    #[msg("Price feed not provided or invalid")]
+    InvalidPriceFeed,
 }

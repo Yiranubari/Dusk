@@ -14,11 +14,13 @@ declare_id!("DcqNBKGGXjaLXGftVsxXUrpePY9GU65UcDiPikDUtH35");
 pub mod market_state {
     use super::*;
 
-    pub fn initialize_market(
+        pub fn initialize_market(
         ctx: Context<InitializeMarket>,
         market_id: String,
+        confidence_threshold: u64,
+        max_feed_age: i64,
     ) -> Result<()> {
-        instructions::initialize_market::handle_initialize(ctx, market_id)
+        instructions::initialize_market::handle_initialize(ctx, market_id, confidence_threshold, max_feed_age)
     }
 
     pub fn update_market_state(
