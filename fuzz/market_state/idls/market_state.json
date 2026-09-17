@@ -1,0 +1,213 @@
+{
+  "address": "DcqNBKGGXjaLXGftVsxXUrpePY9GU65UcDiPikDUtH35",
+  "metadata": {
+    "name": "market_state",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "initialize_market",
+      "discriminator": [
+        35,
+        35,
+        189,
+        193,
+        155,
+        48,
+        170,
+        203
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "price_feed",
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "market_id",
+          "type": "string"
+        },
+        {
+          "name": "confidence_threshold",
+          "type": "u64"
+        },
+        {
+          "name": "max_feed_age",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "update_market_state",
+      "discriminator": [
+        195,
+        34,
+        135,
+        147,
+        8,
+        27,
+        159,
+        18
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "market"
+          ]
+        },
+        {
+          "name": "price_feed",
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_state",
+          "type": {
+            "defined": {
+              "name": "MarketState"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Market",
+      "discriminator": [
+        219,
+        190,
+        213,
+        55,
+        0,
+        227,
+        198,
+        154
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "MarketIdTooLong",
+      "msg": "Market ID exceeds maximum allowed length"
+    },
+    {
+      "code": 6001,
+      "name": "Unauthorized",
+      "msg": "Caller is not authorized to update market state"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidPriceFeed",
+      "msg": "Price feed not provided or invalid"
+    }
+  ],
+  "types": [
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "MarketState"
+              }
+            }
+          },
+          {
+            "name": "market_id",
+            "type": "string"
+          },
+          {
+            "name": "last_update_ts",
+            "type": "i64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "price_feed",
+            "type": "pubkey"
+          },
+          {
+            "name": "confidence_threshold",
+            "type": "u64"
+          },
+          {
+            "name": "max_feed_age",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketState",
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Closed"
+          },
+          {
+            "name": "Stale"
+          }
+        ]
+      }
+    }
+  ]
+}
