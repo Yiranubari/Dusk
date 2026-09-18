@@ -39,12 +39,11 @@ describe("Market State Program Tests", () => {
       const marketId = "INIT_TEST_1";
       const marketPda = await deriveMarketPda(marketId);
 
-      await program.methods
+            await program.methods
         .initializeMarket(marketId, new anchor.BN(500), new anchor.BN(3600))
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
-          priceFeed: null,
           systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc();
@@ -69,7 +68,6 @@ describe("Market State Program Tests", () => {
           .accounts({
             market: marketPda,
             authority: wallet.publicKey,
-            priceFeed: null,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc();
@@ -89,7 +87,6 @@ describe("Market State Program Tests", () => {
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
-          priceFeed: null,
           systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc();
@@ -108,7 +105,6 @@ describe("Market State Program Tests", () => {
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
-          priceFeed: null,
           systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc();
@@ -119,7 +115,6 @@ describe("Market State Program Tests", () => {
           .accounts({
             market: marketPda,
             authority: wallet.publicKey,
-            priceFeed: null,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc();
@@ -144,7 +139,6 @@ describe("Market State Program Tests", () => {
           .accounts({
             market: marketPda,
             authority: wallet.publicKey,
-            priceFeed: null,
             systemProgram: anchor.web3.SystemProgram.programId,
           })
           .rpc();
@@ -158,7 +152,6 @@ describe("Market State Program Tests", () => {
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
-          priceFeed: null,
         })
         .rpc();
       const acct = await program.account.market.fetch(marketPda);
@@ -171,7 +164,6 @@ describe("Market State Program Tests", () => {
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
-          priceFeed: null,
         })
         .rpc();
       const acct = await program.account.market.fetch(marketPda);
@@ -184,7 +176,6 @@ describe("Market State Program Tests", () => {
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
-          priceFeed: null,
         })
         .rpc();
       const acct = await program.account.market.fetch(marketPda);
@@ -199,7 +190,6 @@ describe("Market State Program Tests", () => {
           .accounts({
             market: marketPda,
             authority: unauth.publicKey,
-            priceFeed: null,
           })
           .signers([unauth])
           .rpc();
@@ -209,14 +199,12 @@ describe("Market State Program Tests", () => {
       }
     });
 
-    it("Force a state change and confirm on-chain account reflects it", async () => {
-      // Change state to Open
+        it("Force a state change and confirm on-chain account reflects it", async () => {
       await program.methods
         .updateMarketState({ open: true })
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
-          priceFeed: null,
         })
         .rpc();
 
@@ -224,15 +212,13 @@ describe("Market State Program Tests", () => {
       assert.isTrue(acctBefore.state.open !== undefined);
       assert.isFalse(acctBefore.state.stale !== undefined);
 
-      await delay(2000);
+            await delay(2000);
 
-      // Change state to Closed
       await program.methods
         .updateMarketState({ closed: true })
         .accounts({
           market: marketPda,
           authority: wallet.publicKey,
-          priceFeed: null,
         })
         .rpc();
 

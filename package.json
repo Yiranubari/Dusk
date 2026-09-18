@@ -1,21 +1,26 @@
 {
   "name": "dusk",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": {
+    "scripts": {
     "derive:pyth": "node scripts/derive-pyth-price-feed.mjs",
-    "validator:aapl": "bash scripts/start-local-validator.sh",
+    "validator": "bash scripts/start-local-validator.sh",
+    "init:markets": "node scripts/init-markets.mjs",
+    "test:market_state": "npx mocha tests/market_state.test.cjs --require ts-node/register",
     "verify:mainnet": "node scripts/verify-live-accounts.mjs mainnet",
-    "verify:local": "node scripts/verify-live-accounts.mjs local"
+    "verify:local": "node scripts/verify-live-accounts.mjs local",
+    "observe:thresholds": "node scripts/observe-thresholds.mjs mainnet 5000 5",
+    "observe:thresholds:local": "node scripts/observe-thresholds.mjs local 5000 5"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
     "@pythnetwork/pyth-solana-receiver": "^0.16.0",
     "@solana/web3.js": "^1.98.4",
+    "bn.js": "^5.2.0",
     "dotenv": "^17.2.3"
   },
   "devDependencies": {
-        "@coral-xyz/anchor": "^0.30.1",
     "@solana/spl-token": "^0.4.15",
     "@types/chai": "^5.2.3",
     "@types/mocha": "^10.0.10",
