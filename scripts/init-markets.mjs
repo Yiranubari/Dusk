@@ -8,7 +8,7 @@ const __dirname = path.dirname(new URL(import.meta.url).pathname);
 const IDL_PATH = path.join(__dirname, "..", "target", "idl", "market_state.json");
 const WALLET_PATH = path.join(process.env.HOME || "", ".config", "solana", "id.json");
 
-const PROGRAM_ID = new PublicKey("DcqNBKGGXjaLXGftVsxXUrpePY9GU65UcDiPikDUtH35");
+const PROGRAM_ID = new PublicKey("5nHB2F1c5fzXiiUwpQqY6RT6nXfboQfMGiBnMSkCAJc9");
 
 const MARKETS = [
   { marketId: "AAPLx", confidenceThreshold: 500, maxFeedAge: 3600 },

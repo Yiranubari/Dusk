@@ -106,7 +106,7 @@ impl MarketAccount {
 
 
 const MARKET_STATE_PROGRAM_ID: &str =
-    "DcqNBKGGXjaLXGftVsxXUrpePY9GU65UcDiPikDUtH35";
+    "5nHB2F1c5fzXiiUwpQqY6RT6nXfboQfMGiBnMSkCAJc9";
 
 const UPDATE_MARKET_STATE_DISCRIM: [u8; 8] = {
     const RAW: Option<&str> = option_env!("IDISC_UPDATE_MARKET_STATE");
