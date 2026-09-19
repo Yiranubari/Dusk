@@ -25,10 +25,13 @@ pub struct Vault {
     pub active_strategy: Strategy,
     pub market_state: Pubkey,
     pub bump: u8,
+    pub strike_price: u64,
+    pub expiry_timestamp: i64,
+    pub notional_amount: u64,
 }
 
 impl Vault {
-    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 32 + 1;
+    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 32 + 1 + 8 + 8 + 8;
 }
 
 impl Default for Vault {
@@ -41,6 +44,9 @@ impl Default for Vault {
             active_strategy: Strategy::default(),
             market_state: Pubkey::default(),
             bump: 0,
+            strike_price: 0,
+            expiry_timestamp: 0,
+            notional_amount: 0,
         }
     }
 }

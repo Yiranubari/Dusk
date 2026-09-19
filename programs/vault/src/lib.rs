@@ -35,4 +35,12 @@ pub mod vault {
     pub fn liquidate(ctx: Context<Liquidate>) -> Result<()> {
         instructions::liquidate::handle(ctx)
     }
+
+    pub fn mint_option(ctx: Context<MintOption>, strike_price: u64, expiry_timestamp: i64) -> Result<()> {
+        instructions::mint_option::handle(ctx, strike_price, expiry_timestamp)
+    }
+
+    pub fn settle_option(ctx: Context<SettleOption>) -> Result<()> {
+        instructions::settle_option::handle(ctx)
+    }
 }

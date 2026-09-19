@@ -32,4 +32,18 @@ pub enum VaultError {
     VaultNotUndercollateralized,
     #[msg("Vault has no collateral to liquidate")]
     NoCollateralToLiquidate,
+    #[msg("Invalid expiry timestamp")]
+    InvalidExpiry,
+    #[msg("Option has not expired yet")]
+    OptionNotExpired,
+    #[msg("Vault has no active covered call option")]
+    OptionNotActive,
+    #[msg("Vault has no collateral")]
+    NoCollateral,
+    #[msg("Invalid strike price")]
+    InvalidStrikePrice,
+    #[msg("Option strike exceeds maximum value")]
+    StrikePriceOverflow,
+    #[msg("Unauthorized")]
+    Unauthorized,
 }
