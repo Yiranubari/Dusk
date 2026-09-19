@@ -1,27 +1,10 @@
-import { useRef, type MouseEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { DottedGlowBackground } from '@/components/ui/dotted-glow-background'
 import { BackgroundRippleEffect } from '@/components/ui/background-ripple-effect'
-import { DoorsCurtain, type DoorsCurtainHandle } from '@/components/ui/doors-curtain'
 
 export default function LandingPage() {
-  const navigate = useNavigate()
-  const doorsRef = useRef<DoorsCurtainHandle | null>(null)
-
-  const handleLaunchApp = (e: MouseEvent) => {
-    e.preventDefault()
-    if (doorsRef.current) {
-      doorsRef.current.close(() => {
-        navigate('/app')
-      })
-    } else {
-      navigate('/app')
-    }
-  }
-
   return (
     <div className="min-h-screen bg-black text-white selection:bg-white selection:text-black flex flex-col font-sans">
-      <DoorsCurtain ref={doorsRef} duration={3500} delay={600} />
 
       <header className="border-b border-zinc-900 sticky top-0 z-50 bg-black">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -46,10 +29,9 @@ export default function LandingPage() {
           </p>
 
           <div className="flex justify-center pointer-events-auto">
-            <button
-              type="button"
-              onClick={handleLaunchApp}
-              className="group inline-flex items-center gap-2.5 border border-white bg-white text-black px-8 py-3.5 font-mono font-bold text-sm tracking-wider uppercase hover:bg-zinc-200 transition-colors cursor-pointer"
+            <Link
+              to="/app"
+              className="group inline-flex items-center gap-2.5 border border-white bg-white text-black px-8 py-3.5 font-mono font-bold text-sm tracking-wider uppercase hover:bg-zinc-200 transition-colors"
             >
               <span>Launch App</span>
               <svg
@@ -67,7 +49,7 @@ export default function LandingPage() {
                   strokeLinejoin="round"
                 />
               </svg>
-            </button>
+            </Link>
           </div>
         </div>
       </section>
@@ -196,7 +178,6 @@ export default function LandingPage() {
               <div className="flex shrink-0">
                 <Link
                   to="/app"
-                  onClick={handleLaunchApp}
                   className="group inline-flex items-center gap-2.5 border border-white bg-white px-8 py-3 font-mono text-xs font-bold uppercase tracking-wider text-black transition-all duration-200 hover:bg-zinc-200"
                 >
                   <span>Launch App</span>

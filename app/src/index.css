@@ -54,38 +54,40 @@ html, body, #root {
   -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 90%);
 }
 
-@keyframes door-left-open {
-  0% {
-    transform: translateX(0%);
-  }
-  100% {
-    transform: translateX(-100%);
-  }
+.wallet-adapter-modal-wrapper {
+  background-color: #000000 !important;
+  border: 1px solid #27272a !important;
+  border-radius: 0px !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9) !important;
 }
 
-@keyframes door-right-open {
-  0% {
-    transform: translateX(0%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
+.wallet-adapter-modal-title {
+  font-family: var(--font-mono) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: #ffffff !important;
 }
 
-@keyframes door-left-close {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(0%);
-  }
+.wallet-adapter-modal-button-close {
+  background-color: #18181b !important;
+  border-radius: 0px !important;
 }
 
-@keyframes door-right-close {
-  0% {
-    transform: translateX(100%);
-  }
-  100% {
-    transform: translateX(0%);
-  }
+.wallet-adapter-modal-list .wallet-adapter-button {
+  font-family: var(--font-mono) !important;
+  border-radius: 0px !important;
+  border: 1px solid #18181b !important;
+  background-color: #09090b !important;
+  transition: all 150ms ease !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button:hover {
+  background-color: #18181b !important;
+  border-color: #3f3f46 !important;
+}
+
+.wallet-adapter-modal-list-more {
+  font-family: var(--font-mono) !important;
+  color: #a1a1aa !important;
 }
