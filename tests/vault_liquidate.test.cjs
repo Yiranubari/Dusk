@@ -156,6 +156,7 @@ describe("Vault Liquidation", () => {
         market: marketPda,
         authority: wallet.publicKey,
         priceFeed: pythAaplFeed,
+        stockMint: stockMint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -286,34 +287,6 @@ describe("Vault Liquidation", () => {
       })
       .rpc();
 
-    const staleMarketId = "STALE_LIQ_" + Date.now().toString().slice(-6);
-    [staleMarketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), Buffer.from(staleMarketId)],
-      marketStateProgram.programId
-    );
-
-    await marketStateProgram.methods
-      .initializeMarket(
-        staleMarketId,
-        new BN(500),
-        new BN(1)
-      )
-      .accounts({
-        market: staleMarketPda,
-        authority: wallet.publicKey,
-        priceFeed: pythAaplFeed,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    await marketStateProgram.methods
-      .updateMarketState({ open: {} })
-      .accounts({
-        market: staleMarketPda,
-        authority: wallet.publicKey,
-      })
-      .rpc();
-
     const staleStockKeypair = Keypair.generate();
     const staleInitTx = new Transaction().add(
       SystemProgram.createAccount({
@@ -339,6 +312,35 @@ describe("Vault Liquidation", () => {
     );
     await sendAndConfirmTransaction(provider.connection, staleInitTx, [wallet.payer, staleStockKeypair]);
     staleStockMint = staleStockKeypair.publicKey;
+
+    const staleMarketId = "STALE_LIQ_" + Date.now().toString().slice(-6);
+    [staleMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(staleMarketId)],
+      marketStateProgram.programId
+    );
+
+    await marketStateProgram.methods
+      .initializeMarket(
+        staleMarketId,
+        new BN(500),
+        new BN(1)
+      )
+      .accounts({
+        market: staleMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: staleStockMint,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: staleMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
 
     staleUserStockAta = await getOrCreateAssociatedTokenAccount(
       provider.connection,
@@ -623,6 +625,34 @@ describe("Vault Liquidation", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
+    const market2Id = "LIQ2_" + Date.now().toString().slice(-6);
+    const [market2Pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(market2Id)],
+      marketStateProgram.programId
+    );
+    await marketStateProgram.methods
+      .initializeMarket(
+        market2Id,
+        new BN(500),
+        new BN(10_000_000)
+      )
+      .accounts({
+        market: market2Pda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: stockMint2,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: market2Pda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
+
     await vaultProgram.methods
       .deposit(new BN(100_000_000))
       .accounts({
@@ -631,7 +661,7 @@ describe("Vault Liquidation", () => {
         stockMint: stockMint2,
         userTokenAccount: userStock2Ata.address,
         vaultTokenAccount: vault2StockAta,
-        marketState: marketPda,
+        marketState: market2Pda,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -668,7 +698,7 @@ describe("Vault Liquidation", () => {
         user: wallet.publicKey,
         vault: vault2Pda,
         stockMint: stockMint2,
-        marketState: marketPda,
+        marketState: market2Pda,
         priceUpdate: pythAaplFeed,
         stablecoinMint: stablecoinMint,
         vaultStablecoinAccount: vault2StablecoinAta.address,
@@ -683,7 +713,7 @@ describe("Vault Liquidation", () => {
     await marketStateProgram.methods
       .updateMarketState({ closed: {} })
       .accounts({
-        market: marketPda,
+        market: market2Pda,
         authority: wallet.publicKey,
       })
       .rpc();
@@ -691,7 +721,7 @@ describe("Vault Liquidation", () => {
     await marketStateProgram.methods
       .updateMarketState({ open: {} })
       .accounts({
-        market: marketPda,
+        market: market2Pda,
         authority: wallet.publicKey,
       })
       .rpc();
@@ -702,7 +732,7 @@ describe("Vault Liquidation", () => {
         .accounts(getLiquidationAccounts(
           vault2Pda,
           stockMint2,
-          marketPda,
+          market2Pda,
           vault2StablecoinAta.address,
           vault2StockAta
         ))

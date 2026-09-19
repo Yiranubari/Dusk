@@ -10,9 +10,13 @@ const WALLET_PATH = path.join(process.env.HOME || "", ".config", "solana", "id.j
 
 const PROGRAM_ID = new PublicKey("5nHB2F1c5fzXiiUwpQqY6RT6nXfboQfMGiBnMSkCAJc9");
 
+const STOCK_MINT = new PublicKey("XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp");
+const PYTH_AAPL_FEED = new PublicKey("DJ2FyTgUAkEtXW3U5P9PF19meFTRtW4ZWKKFgACfVbUy");
+const PYTH_TSLA_FEED = new PublicKey("E8WFH8brgP58arcuW2wwsPHiomYrSvrgWTsRLZLAEZUQ");
+
 const MARKETS = [
-  { marketId: "AAPLx", confidenceThreshold: 500, maxFeedAge: 3600 },
-  { marketId: "TSLAx", confidenceThreshold: 500, maxFeedAge: 3600 },
+  { marketId: "AAPLx", confidenceThreshold: 500, maxFeedAge: 3600, priceFeed: PYTH_AAPL_FEED },
+  { marketId: "TSLAx", confidenceThreshold: 500, maxFeedAge: 3600, priceFeed: PYTH_TSLA_FEED },
 ];
 
 async function main() {
@@ -37,7 +41,7 @@ async function main() {
   console.log(`  Authority: ${keypair.publicKey.toBase58()}`);
   console.log("");
 
-  for (const { marketId, confidenceThreshold, maxFeedAge } of MARKETS) {
+  for (const { marketId, confidenceThreshold, maxFeedAge, priceFeed } of MARKETS) {
     const [pda] = PublicKey.findProgramAddressSync(
       [Buffer.from("market"), Buffer.from(marketId)],
       PROGRAM_ID
@@ -59,6 +63,8 @@ async function main() {
         .accounts({
           market: pda,
           authority: keypair.publicKey,
+          priceFeed,
+          stockMint: STOCK_MINT,
           systemProgram: SystemProgram.programId,
         })
         .rpc();

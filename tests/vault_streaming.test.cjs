@@ -162,6 +162,7 @@ describe("Vault Streaming Strategy", () => {
         market: marketPda,
         authority: wallet.publicKey,
         priceFeed: pythAaplFeed,
+        stockMint: stockMint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -216,6 +217,7 @@ describe("Vault Streaming Strategy", () => {
         market: staleMarketPda,
         authority: wallet.publicKey,
         priceFeed: pythAaplFeed,
+        stockMint: stockMint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -308,6 +310,34 @@ describe("Vault Streaming Strategy", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
+    const freshMarketId = "FSTRM_" + Date.now().toString().slice(-6) + "_" + Math.floor(Math.random() * 1000);
+    const [freshMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(freshMarketId)],
+      marketStateProgram.programId
+    );
+    await marketStateProgram.methods
+      .initializeMarket(
+        freshMarketId,
+        new BN(500),
+        new BN(10_000_000)
+      )
+      .accounts({
+        market: freshMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: freshStockKeypair.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: freshMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
+
     await vaultProgram.methods
       .deposit(new BN(initialDeposit))
       .accounts({
@@ -316,7 +346,7 @@ describe("Vault Streaming Strategy", () => {
         stockMint: freshStockKeypair.publicKey,
         userTokenAccount: uAta.address,
         vaultTokenAccount: vStockAta,
-        marketState: marketPda,
+        marketState: freshMarketPda,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -330,6 +360,7 @@ describe("Vault Streaming Strategy", () => {
       vaultStockAta: vStockAta,
       userStockAta: uAta.address,
       recipientStockAta: rAta.address,
+      marketPda: freshMarketPda,
     };
   }
 
@@ -505,7 +536,7 @@ describe("Vault Streaming Strategy", () => {
           recipient: recipientKeypair.publicKey,
           vault: fresh.vaultPda,
           stockMint: fresh.stockMint,
-          marketState: marketPda,
+          marketState: fresh.marketPda,
           priceUpdate: pythAaplFeed,
           vaultTokenAccount: fresh.vaultStockAta,
           recipientTokenAccount: fresh.recipientStockAta,
@@ -522,7 +553,7 @@ describe("Vault Streaming Strategy", () => {
   it("6. Claim after cliff partway through schedule transfers correct linear vested amount", async () => {
     const fresh = await createFreshVault(100_000_000);
     const currentBlockTime = await getCurrentBlockTime();
-    const duration = 6;
+    const duration = 12;
     const cliffSec = 2;
     const streamAmount = 60_000_000;
 
@@ -542,7 +573,7 @@ describe("Vault Streaming Strategy", () => {
       })
       .rpc();
 
-    await new Promise((r) => setTimeout(r, 3500));
+    await new Promise((r) => setTimeout(r, 4000));
 
     const beforeBal = await provider.connection.getTokenAccountBalance(fresh.recipientStockAta);
     const beforeAmount = BigInt(beforeBal.value.amount);
@@ -553,7 +584,7 @@ describe("Vault Streaming Strategy", () => {
         recipient: recipientKeypair.publicKey,
         vault: fresh.vaultPda,
         stockMint: fresh.stockMint,
-        marketState: marketPda,
+        marketState: fresh.marketPda,
         priceUpdate: pythAaplFeed,
         vaultTokenAccount: fresh.vaultStockAta,
         recipientTokenAccount: fresh.recipientStockAta,
@@ -577,7 +608,7 @@ describe("Vault Streaming Strategy", () => {
   it("7. Two sequential claims at different times correctly account for previously-released amount", async () => {
     const fresh = await createFreshVault(100_000_000);
     const currentBlockTime = await getCurrentBlockTime();
-    const duration = 8;
+    const duration = 14;
     const streamAmount = 80_000_000;
 
     await vaultProgram.methods
@@ -604,7 +635,7 @@ describe("Vault Streaming Strategy", () => {
         recipient: recipientKeypair.publicKey,
         vault: fresh.vaultPda,
         stockMint: fresh.stockMint,
-        marketState: marketPda,
+        marketState: fresh.marketPda,
         priceUpdate: pythAaplFeed,
         vaultTokenAccount: fresh.vaultStockAta,
         recipientTokenAccount: fresh.recipientStockAta,
@@ -625,7 +656,7 @@ describe("Vault Streaming Strategy", () => {
         recipient: recipientKeypair.publicKey,
         vault: fresh.vaultPda,
         stockMint: fresh.stockMint,
-        marketState: marketPda,
+        marketState: fresh.marketPda,
         priceUpdate: pythAaplFeed,
         vaultTokenAccount: fresh.vaultStockAta,
         recipientTokenAccount: fresh.recipientStockAta,
@@ -668,7 +699,7 @@ describe("Vault Streaming Strategy", () => {
           recipient: thirdPartyKeypair.publicKey,
           vault: fresh.vaultPda,
           stockMint: fresh.stockMint,
-          marketState: marketPda,
+          marketState: fresh.marketPda,
           priceUpdate: pythAaplFeed,
           vaultTokenAccount: fresh.vaultStockAta,
           recipientTokenAccount: fresh.recipientStockAta,
@@ -707,7 +738,7 @@ describe("Vault Streaming Strategy", () => {
     await marketStateProgram.methods
       .updateMarketState({ stale: {} })
       .accounts({
-        market: marketPda,
+        market: fresh.marketPda,
         authority: wallet.publicKey,
       })
       .rpc();
@@ -719,7 +750,7 @@ describe("Vault Streaming Strategy", () => {
           recipient: recipientKeypair.publicKey,
           vault: fresh.vaultPda,
           stockMint: fresh.stockMint,
-          marketState: marketPda,
+          marketState: fresh.marketPda,
           priceUpdate: pythAaplFeed,
           vaultTokenAccount: fresh.vaultStockAta,
           recipientTokenAccount: fresh.recipientStockAta,
@@ -735,7 +766,7 @@ describe("Vault Streaming Strategy", () => {
     await marketStateProgram.methods
       .updateMarketState({ open: {} })
       .accounts({
-        market: marketPda,
+        market: fresh.marketPda,
         authority: wallet.publicKey,
       })
       .rpc();
@@ -772,7 +803,7 @@ describe("Vault Streaming Strategy", () => {
         owner: wallet.publicKey,
         vault: fresh.vaultPda,
         stockMint: fresh.stockMint,
-        marketState: marketPda,
+        marketState: fresh.marketPda,
         priceUpdate: pythAaplFeed,
         vaultTokenAccount: fresh.vaultStockAta,
         recipientTokenAccount: fresh.recipientStockAta,
@@ -821,7 +852,7 @@ describe("Vault Streaming Strategy", () => {
           owner: wallet.publicKey,
           vault: fresh.vaultPda,
           stockMint: fresh.stockMint,
-          marketState: marketPda,
+          marketState: fresh.marketPda,
           priceUpdate: pythAaplFeed,
           vaultTokenAccount: fresh.vaultStockAta,
           recipientTokenAccount: fresh.recipientStockAta,
@@ -861,7 +892,7 @@ describe("Vault Streaming Strategy", () => {
           owner: thirdPartyKeypair.publicKey,
           vault: fresh.vaultPda,
           stockMint: fresh.stockMint,
-          marketState: marketPda,
+          marketState: fresh.marketPda,
           priceUpdate: pythAaplFeed,
           vaultTokenAccount: fresh.vaultStockAta,
           recipientTokenAccount: fresh.recipientStockAta,
@@ -898,7 +929,7 @@ describe("Vault Streaming Strategy", () => {
     await marketStateProgram.methods
       .updateMarketState({ stale: {} })
       .accounts({
-        market: marketPda,
+        market: fresh.marketPda,
         authority: wallet.publicKey,
       })
       .rpc();
@@ -910,7 +941,7 @@ describe("Vault Streaming Strategy", () => {
           owner: wallet.publicKey,
           vault: fresh.vaultPda,
           stockMint: fresh.stockMint,
-          marketState: marketPda,
+          marketState: fresh.marketPda,
           priceUpdate: pythAaplFeed,
           vaultTokenAccount: fresh.vaultStockAta,
           recipientTokenAccount: fresh.recipientStockAta,
@@ -925,7 +956,7 @@ describe("Vault Streaming Strategy", () => {
     await marketStateProgram.methods
       .updateMarketState({ open: {} })
       .accounts({
-        market: marketPda,
+        market: fresh.marketPda,
         authority: wallet.publicKey,
       })
       .rpc();

@@ -143,6 +143,7 @@ describe("Vault Emergency Pause", () => {
         market: marketPda,
         authority: wallet.publicKey,
         priceFeed: pythAaplFeed,
+        stockMint: stockMint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();

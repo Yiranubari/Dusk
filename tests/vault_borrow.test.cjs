@@ -143,6 +143,7 @@ describe("Vault Borrow", () => {
         market: marketPda,
         authority: wallet.publicKey,
         priceFeed: pythAaplFeed,
+        stockMint: stockMint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -220,34 +221,6 @@ describe("Vault Borrow", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
-    const staleMarketId = "STALE_" + Date.now().toString().slice(-6);
-    [staleMarketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), Buffer.from(staleMarketId)],
-      marketStateProgram.programId
-    );
-
-    await marketStateProgram.methods
-      .initializeMarket(
-        staleMarketId,
-        new BN(500),
-        new BN(1)
-      )
-      .accounts({
-        market: staleMarketPda,
-        authority: wallet.publicKey,
-        priceFeed: pythAaplFeed,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    await marketStateProgram.methods
-      .updateMarketState({ open: {} })
-      .accounts({
-        market: staleMarketPda,
-        authority: wallet.publicKey,
-      })
-      .rpc();
-
     const staleStockKeypair = Keypair.generate();
     const staleInitTx = new Transaction().add(
       SystemProgram.createAccount({
@@ -273,6 +246,35 @@ describe("Vault Borrow", () => {
     );
     await sendAndConfirmTransaction(provider.connection, staleInitTx, [wallet.payer, staleStockKeypair]);
     staleStockMint = staleStockKeypair.publicKey;
+
+    const staleMarketId = "STALE_" + Date.now().toString().slice(-6);
+    [staleMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(staleMarketId)],
+      marketStateProgram.programId
+    );
+
+    await marketStateProgram.methods
+      .initializeMarket(
+        staleMarketId,
+        new BN(500),
+        new BN(1)
+      )
+      .accounts({
+        market: staleMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: staleStockMint,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: staleMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
 
     staleUserStockAta = await getOrCreateAssociatedTokenAccount(
       provider.connection,
@@ -536,6 +538,35 @@ describe("Vault Borrow", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
+    const ccMarketId = "CCM_" + Date.now().toString().slice(-6);
+    const [ccMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(ccMarketId)],
+      marketStateProgram.programId
+    );
+
+    await marketStateProgram.methods
+      .initializeMarket(
+        ccMarketId,
+        new BN(500),
+        new BN(10_000_000)
+      )
+      .accounts({
+        market: ccMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: ccStockKeypair.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: ccMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
+
     await vaultProgram.methods
       .deposit(new BN(100_000_000))
       .accounts({
@@ -544,7 +575,7 @@ describe("Vault Borrow", () => {
         stockMint: ccStockKeypair.publicKey,
         userTokenAccount: ccUserStockAta.address,
         vaultTokenAccount: ccVaultStockAta,
-        marketState: marketPda,
+        marketState: ccMarketPda,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -574,7 +605,7 @@ describe("Vault Borrow", () => {
         owner: wallet.publicKey,
         vault: ccVaultPda,
         stockMint: ccStockKeypair.publicKey,
-        marketState: marketPda,
+        marketState: ccMarketPda,
         priceUpdate: pythAaplFeed,
       })
       .rpc();
@@ -586,7 +617,7 @@ describe("Vault Borrow", () => {
           user: wallet.publicKey,
           vault: ccVaultPda,
           stockMint: ccStockKeypair.publicKey,
-          marketState: marketPda,
+          marketState: ccMarketPda,
           priceUpdate: pythAaplFeed,
           stablecoinMint: stablecoinMint,
           vaultStablecoinAccount: ccVaultStablecoinAta.address,

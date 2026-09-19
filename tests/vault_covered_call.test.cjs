@@ -147,6 +147,7 @@ describe("Vault Covered Call Strategy", () => {
         market: marketPda,
         authority: wallet.publicKey,
         priceFeed: pythAaplFeed,
+        stockMint: stockMint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -182,34 +183,6 @@ describe("Vault Covered Call Strategy", () => {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
-      })
-      .rpc();
-
-    const staleMarketId = "STCC_" + Date.now().toString().slice(-6);
-    [staleMarketPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("market"), Buffer.from(staleMarketId)],
-      marketStateProgram.programId
-    );
-
-    await marketStateProgram.methods
-      .initializeMarket(
-        staleMarketId,
-        new BN(500),
-        new BN(1)
-      )
-      .accounts({
-        market: staleMarketPda,
-        authority: wallet.publicKey,
-        priceFeed: pythAaplFeed,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    await marketStateProgram.methods
-      .updateMarketState({ open: {} })
-      .accounts({
-        market: staleMarketPda,
-        authority: wallet.publicKey,
       })
       .rpc();
   });
@@ -350,6 +323,35 @@ describe("Vault Covered Call Strategy", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
+    const staleMarketId = "STCC_" + Date.now().toString().slice(-6);
+    [staleMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(staleMarketId)],
+      marketStateProgram.programId
+    );
+
+    await marketStateProgram.methods
+      .initializeMarket(
+        staleMarketId,
+        new BN(500),
+        new BN(1)
+      )
+      .accounts({
+        market: staleMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: otherStockKeypair.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: staleMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
+
     await vaultProgram.methods
       .deposit(new BN(100_000_000))
       .accounts({
@@ -468,6 +470,35 @@ describe("Vault Covered Call Strategy", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
+    const qMarketId = "QMK_" + Date.now().toString().slice(-6);
+    const [qMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(qMarketId)],
+      marketStateProgram.programId
+    );
+
+    await marketStateProgram.methods
+      .initializeMarket(
+        qMarketId,
+        new BN(500),
+        new BN(10_000_000)
+      )
+      .accounts({
+        market: qMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: quickVaultKeypair.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: qMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
+
     await vaultProgram.methods
       .deposit(new BN(100_000_000))
       .accounts({
@@ -476,7 +507,7 @@ describe("Vault Covered Call Strategy", () => {
         stockMint: quickVaultKeypair.publicKey,
         userTokenAccount: qUserStockAta.address,
         vaultTokenAccount: qVaultStockAta,
-        marketState: marketPda,
+        marketState: qMarketPda,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -494,7 +525,7 @@ describe("Vault Covered Call Strategy", () => {
         owner: wallet.publicKey,
         vault: qVaultPda,
         stockMint: quickVaultKeypair.publicKey,
-        marketState: marketPda,
+        marketState: qMarketPda,
         priceUpdate: pythAaplFeed,
       })
       .rpc();
@@ -515,7 +546,7 @@ describe("Vault Covered Call Strategy", () => {
         caller: otherUser.publicKey,
         vault: qVaultPda,
         stockMint: quickVaultKeypair.publicKey,
-        marketState: marketPda,
+        marketState: qMarketPda,
         priceUpdate: pythAaplFeed,
       })
       .signers([otherUser])
@@ -598,6 +629,35 @@ describe("Vault Covered Call Strategy", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
+    const otmMarketId = "OTM_" + Date.now().toString().slice(-6);
+    const [otmMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(otmMarketId)],
+      marketStateProgram.programId
+    );
+
+    await marketStateProgram.methods
+      .initializeMarket(
+        otmMarketId,
+        new BN(500),
+        new BN(10_000_000)
+      )
+      .accounts({
+        market: otmMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: otmVaultKeypair.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: otmMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
+
     await vaultProgram.methods
       .deposit(new BN(100_000_000))
       .accounts({
@@ -606,7 +666,7 @@ describe("Vault Covered Call Strategy", () => {
         stockMint: otmVaultKeypair.publicKey,
         userTokenAccount: otmUserStockAta.address,
         vaultTokenAccount: otmVaultStockAta,
-        marketState: marketPda,
+        marketState: otmMarketPda,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -624,7 +684,7 @@ describe("Vault Covered Call Strategy", () => {
         owner: wallet.publicKey,
         vault: otmVaultPda,
         stockMint: otmVaultKeypair.publicKey,
-        marketState: marketPda,
+        marketState: otmMarketPda,
         priceUpdate: pythAaplFeed,
       })
       .rpc();
@@ -645,7 +705,7 @@ describe("Vault Covered Call Strategy", () => {
         caller: otherUser.publicKey,
         vault: otmVaultPda,
         stockMint: otmVaultKeypair.publicKey,
-        marketState: marketPda,
+        marketState: otmMarketPda,
         priceUpdate: pythAaplFeed,
       })
       .signers([otherUser])
@@ -728,6 +788,35 @@ describe("Vault Covered Call Strategy", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
+    const stMarketId = "STCC8_" + Date.now().toString().slice(-6);
+    const [stMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(stMarketId)],
+      marketStateProgram.programId
+    );
+
+    await marketStateProgram.methods
+      .initializeMarket(
+        stMarketId,
+        new BN(500),
+        new BN(10_000_000)
+      )
+      .accounts({
+        market: stMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: staleTestKeypair.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: stMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
+
     await vaultProgram.methods
       .deposit(new BN(100_000_000))
       .accounts({
@@ -736,7 +825,7 @@ describe("Vault Covered Call Strategy", () => {
         stockMint: staleTestKeypair.publicKey,
         userTokenAccount: stUserStockAta.address,
         vaultTokenAccount: stVaultStockAta,
-        marketState: marketPda,
+        marketState: stMarketPda,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -754,7 +843,7 @@ describe("Vault Covered Call Strategy", () => {
         owner: wallet.publicKey,
         vault: stVaultPda,
         stockMint: staleTestKeypair.publicKey,
-        marketState: marketPda,
+        marketState: stMarketPda,
         priceUpdate: pythAaplFeed,
       })
       .rpc();
@@ -764,7 +853,7 @@ describe("Vault Covered Call Strategy", () => {
     await marketStateProgram.methods
       .updateMarketState({ stale: {} })
       .accounts({
-        market: marketPda,
+        market: stMarketPda,
         authority: wallet.publicKey,
       })
       .rpc();
@@ -776,7 +865,7 @@ describe("Vault Covered Call Strategy", () => {
           caller: wallet.publicKey,
           vault: stVaultPda,
           stockMint: staleTestKeypair.publicKey,
-          marketState: marketPda,
+          marketState: stMarketPda,
           priceUpdate: pythAaplFeed,
         })
         .rpc();
@@ -788,7 +877,7 @@ describe("Vault Covered Call Strategy", () => {
     await marketStateProgram.methods
       .updateMarketState({ open: {} })
       .accounts({
-        market: marketPda,
+        market: stMarketPda,
         authority: wallet.publicKey,
       })
       .rpc();

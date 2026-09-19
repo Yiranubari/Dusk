@@ -185,7 +185,7 @@ fn get_markets() -> Vec<MarketConfig> {
 
     if let Ok(feed_aapl) = env::var("PYTH_PRICE_FEED_ACCOUNT") {
         markets.push(MarketConfig {
-            ticker: "AAPL".to_string(),
+            ticker: "AAPLx".to_string(),
             feed_account: Pubkey::from_str(&feed_aapl)
                 .expect("Invalid AAPL Pyth feed pubkey"),
         });
@@ -193,7 +193,7 @@ fn get_markets() -> Vec<MarketConfig> {
 
     if let Ok(feed_tsla) = env::var("PYTH_TSLA_PRICE_FEED_ACCOUNT") {
         markets.push(MarketConfig {
-            ticker: "TSLA".to_string(),
+            ticker: "TSLAx".to_string(),
             feed_account: Pubkey::from_str(&feed_tsla)
                 .expect("Invalid TSLA Pyth feed pubkey"),
         });

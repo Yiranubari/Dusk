@@ -1,7 +1,7 @@
 const { PublicKey } = require("@solana/web3.js");
 const { assert } = require("chai");
 
-const VAULT_PROGRAM_ID = new PublicKey("9BFXopHo6M4VRoLaGwdnt1Ht1Y7EMzY6rW3H8PbKpjoB");
+const VAULT_PROGRAM_ID = new PublicKey("AB41HEqA7PfEbysT5c9DX7A9MNa65GDpG397CoN5cj3z");
 
 const FIXED_USER = new PublicKey("11111111111111111111111111111111");
 const FIXED_STOCK_MINT = new PublicKey("So11111111111111111111111111111111111111112");

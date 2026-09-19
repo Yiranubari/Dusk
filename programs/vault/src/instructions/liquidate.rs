@@ -31,7 +31,8 @@ pub struct Liquidate<'info> {
     pub stock_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
-        constraint = market_state.key() == vault.market_state @ VaultError::InvalidMarketState
+        constraint = market_state.key() == vault.market_state @ VaultError::InvalidMarketState,
+        constraint = market_state.stock_mint == vault.stock_mint @ VaultError::InvalidMarketState
     )]
     pub market_state: Box<Account<'info, market_state::Market>>,
 
@@ -132,11 +133,13 @@ pub fn handle(ctx: Context<Liquidate>) -> Result<()> {
         (vault.borrowed_amount, ideal_collateral_to_seize)
     } else {
         let max_usd_covered = collateral_value_usd;
-        let scaled_repay = max_usd_covered
-            .checked_mul(10_000u128)
-            .ok_or(VaultError::MathOverflow)?
-            .checked_div((10_000 + LIQUIDATION_INCENTIVE_BPS) as u128)
-            .ok_or(VaultError::MathOverflow)? as u64;
+        let scaled_repay = u64::try_from(
+            max_usd_covered
+                .checked_mul(10_000u128)
+                .ok_or(VaultError::MathOverflow)?
+                .checked_div((10_000 + LIQUIDATION_INCENTIVE_BPS) as u128)
+                .ok_or(VaultError::MathOverflow)?
+        ).map_err(|_| VaultError::MathOverflow)?;
         (scaled_repay.min(vault.borrowed_amount), vault.collateral_amount)
     };
 

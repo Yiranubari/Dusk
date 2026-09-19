@@ -197,7 +197,7 @@ pub fn calculate_collateral_from_usd<'info>(
             .ok_or(VaultError::MathOverflow)?
     };
 
-    Ok(collateral_amount as u64)
+    Ok(u64::try_from(collateral_amount).map_err(|_| VaultError::MathOverflow)?)
 }
 
 pub fn validate_market_and_feed_staleness(

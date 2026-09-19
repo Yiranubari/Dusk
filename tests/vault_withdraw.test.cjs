@@ -135,6 +135,7 @@ describe("Vault Withdraw (Token-2022)", () => {
         market: marketPda,
         authority: wallet.publicKey,
         priceFeed: pythAaplFeed,
+        stockMint: mint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -404,13 +405,42 @@ describe("Vault Withdraw (Token-2022)", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
+    const vMarketId = "W9_" + Date.now().toString().slice(-6);
+    const [vMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(vMarketId)],
+      marketStateProgram.programId
+    );
+
+    await marketStateProgram.methods
+      .initializeMarket(
+        vMarketId,
+        new BN(500),
+        new BN(10_000_000)
+      )
+      .accounts({
+        market: vMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: stockMint9,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: vMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
+
     await vaultProgram.methods
       .deposit(new BN(100_000_000))
       .accounts({
         user: wallet.publicKey,
         vault: vPda,
         stockMint: stockMint9,
-        marketState: marketPda,
+        marketState: vMarketPda,
         priceUpdate: pythAaplFeed,
         stablecoinMint: stablecoin9Mint,
         userTokenAccount: userStockAta9.address,
@@ -456,7 +486,7 @@ describe("Vault Withdraw (Token-2022)", () => {
         user: wallet.publicKey,
         vault: vPda,
         stockMint: stockMint9,
-        marketState: marketPda,
+        marketState: vMarketPda,
         priceUpdate: pythAaplFeed,
         stablecoinMint: stablecoin9Mint,
         vaultStablecoinAccount: vaultStable9Ata.address,
@@ -474,7 +504,7 @@ describe("Vault Withdraw (Token-2022)", () => {
         user: wallet.publicKey,
         vault: vPda,
         stockMint: stockMint9,
-        marketState: marketPda,
+        marketState: vMarketPda,
         priceUpdate: pythAaplFeed,
         stablecoinMint: stablecoin9Mint,
         userTokenAccount: userStockAta9.address,
@@ -496,7 +526,7 @@ describe("Vault Withdraw (Token-2022)", () => {
           user: wallet.publicKey,
           vault: vPda,
           stockMint: stockMint9,
-          marketState: marketPda,
+          marketState: vMarketPda,
           priceUpdate: pythAaplFeed,
           stablecoinMint: stablecoin9Mint,
           userTokenAccount: userStockAta9.address,
@@ -576,13 +606,42 @@ describe("Vault Withdraw (Token-2022)", () => {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
+    const ccMarketId = "WCC_" + Date.now().toString().slice(-6);
+    const [ccMarketPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(ccMarketId)],
+      marketStateProgram.programId
+    );
+
+    await marketStateProgram.methods
+      .initializeMarket(
+        ccMarketId,
+        new BN(500),
+        new BN(10_000_000)
+      )
+      .accounts({
+        market: ccMarketPda,
+        authority: wallet.publicKey,
+        priceFeed: pythAaplFeed,
+        stockMint: ccStockKeypair.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await marketStateProgram.methods
+      .updateMarketState({ open: {} })
+      .accounts({
+        market: ccMarketPda,
+        authority: wallet.publicKey,
+      })
+      .rpc();
+
     await vaultProgram.methods
       .deposit(new BN(100_000_000))
       .accounts({
         user: wallet.publicKey,
         vault: ccVaultPda,
         stockMint: ccStockKeypair.publicKey,
-        marketState: marketPda,
+        marketState: ccMarketPda,
         priceUpdate: pythAaplFeed,
         stablecoinMint: stablecoinMint,
         userTokenAccount: ccUserStockAta.address,
@@ -605,7 +664,7 @@ describe("Vault Withdraw (Token-2022)", () => {
         owner: wallet.publicKey,
         vault: ccVaultPda,
         stockMint: ccStockKeypair.publicKey,
-        marketState: marketPda,
+        marketState: ccMarketPda,
         priceUpdate: pythAaplFeed,
       })
       .rpc();
@@ -617,7 +676,7 @@ describe("Vault Withdraw (Token-2022)", () => {
           user: wallet.publicKey,
           vault: ccVaultPda,
           stockMint: ccStockKeypair.publicKey,
-          marketState: marketPda,
+          marketState: ccMarketPda,
           priceUpdate: pythAaplFeed,
           stablecoinMint: stablecoinMint,
           userTokenAccount: ccUserStockAta.address,

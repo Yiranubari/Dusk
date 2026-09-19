@@ -42,7 +42,10 @@ pub struct Deposit<'info> {
     )]
     pub vault_token_account: InterfaceAccount<'info, SplTokenAccount>,
 
-    pub market_state: UncheckedAccount<'info>,
+    #[account(
+        constraint = market_state.stock_mint == stock_mint.key() @ VaultError::InvalidMarketState
+    )]
+    pub market_state: Account<'info, market_state::Market>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -58,6 +61,11 @@ pub fn handle(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         vault.stock_mint = ctx.accounts.stock_mint.key();
         vault.market_state = ctx.accounts.market_state.key();
         vault.bump = ctx.bumps.vault;
+    } else {
+        require!(
+            vault.market_state == ctx.accounts.market_state.key(),
+            VaultError::InvalidMarketState
+        );
     }
 
     vault.collateral_amount = vault.collateral_amount

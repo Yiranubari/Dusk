@@ -8,4 +8,6 @@ pub enum MarketStateErrorCode {
     Unauthorized,
     #[msg("Price feed not provided or invalid")]
     InvalidPriceFeed,
+    #[msg("Stock mint not provided or invalid")]
+    InvalidStockMint,
 }

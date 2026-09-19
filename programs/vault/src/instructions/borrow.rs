@@ -27,7 +27,8 @@ pub struct Borrow<'info> {
     pub stock_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
-        constraint = market_state.key() == vault.market_state @ VaultError::InvalidMarketState
+        constraint = market_state.key() == vault.market_state @ VaultError::InvalidMarketState,
+        constraint = market_state.stock_mint == vault.stock_mint @ VaultError::InvalidMarketState
     )]
     pub market_state: Box<Account<'info, market_state::Market>>,
 

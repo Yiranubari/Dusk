@@ -21,6 +21,8 @@ pub struct InitializeMarket<'info> {
     #[doc(hidden)]
     pub price_feed: Option<UncheckedAccount<'info>>,
 
+    pub stock_mint: Option<UncheckedAccount<'info>>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -34,6 +36,10 @@ pub fn handle_initialize(
         market_id.len() <= Market::MAX_MARKET_ID_LEN,
         MarketStateErrorCode::MarketIdTooLong
     );
+
+    let stock_mint = ctx.accounts.stock_mint.as_ref().ok_or(MarketStateErrorCode::InvalidStockMint)?;
+    require!(stock_mint.key() != Pubkey::default(), MarketStateErrorCode::InvalidStockMint);
+    ctx.accounts.market.stock_mint = stock_mint.key();
 
     ctx.accounts.market.market_id = market_id;
     ctx.accounts.market.authority = *ctx.accounts.authority.key;
