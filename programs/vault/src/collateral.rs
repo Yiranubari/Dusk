@@ -6,6 +6,9 @@ use anchor_spl::token_2022::spl_token_2022::{self, extension::BaseStateWithExten
 
 pub const LTV_OPEN_BPS: u64 = 6500;
 pub const LTV_CLOSED_BPS: u64 = 4000;
+pub const LIQUIDATION_THRESHOLD_OPEN_BPS: u64 = 8000;
+pub const LIQUIDATION_THRESHOLD_CLOSED_BPS: u64 = 5500;
+pub const LIQUIDATION_INCENTIVE_BPS: u64 = 500;
 
 pub fn validate_market_and_feed(
     market: &market_state::Market,
@@ -96,6 +99,103 @@ pub fn calculate_collateral_value_usd<'info>(
     };
 
     Ok(collateral_value_usd)
+}
+
+pub fn validate_market_and_feed_liquidation(
+    market: &market_state::Market,
+    price_update: &PriceUpdateV2,
+    clock: &Clock,
+) -> Result<u64> {
+    let threshold_bps = match market.state {
+        market_state::MarketState::Open => LIQUIDATION_THRESHOLD_OPEN_BPS,
+        market_state::MarketState::Closed => LIQUIDATION_THRESHOLD_CLOSED_BPS,
+        market_state::MarketState::Stale => return err!(VaultError::MarketStateStale),
+    };
+
+    let price_message = &price_update.price_message;
+
+    require!(price_message.price > 0, VaultError::InvalidPrice);
+
+    let age = clock.unix_timestamp
+        .checked_sub(price_message.publish_time)
+        .ok_or(VaultError::MathOverflow)?;
+
+    require!(age <= market.max_feed_age, VaultError::PriceFeedStale);
+
+    let conf_scaled = (price_message.conf as u128)
+        .checked_mul(10_000)
+        .ok_or(VaultError::MathOverflow)?;
+
+    let threshold_scaled = (price_message.price as u128)
+        .checked_mul(market.confidence_threshold as u128)
+        .ok_or(VaultError::MathOverflow)?;
+
+    require!(conf_scaled <= threshold_scaled, VaultError::PriceConfidenceTooWide);
+
+    Ok(threshold_bps)
+}
+
+pub fn calculate_collateral_from_usd<'info>(
+    usd_value: u128,
+    stock_mint: &InterfaceAccount<'info, Mint>,
+    price_update: &Account<'info, PriceUpdateV2>,
+    clock: &Clock,
+    usd_decimals: u8,
+) -> Result<u64> {
+    let price_message = &price_update.price_message;
+    require!(price_message.price > 0, VaultError::InvalidPrice);
+
+    let mint_info = stock_mint.to_account_info();
+    let mint_data = mint_info.try_borrow_data()?;
+    let mint_state = spl_token_2022::extension::StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
+    let multiplier_f64 = if let Ok(scaled_config) = mint_state.get_extension::<spl_token_2022::extension::scaled_ui_amount::ScaledUiAmountConfig>() {
+        if clock.unix_timestamp >= scaled_config.new_multiplier_effective_timestamp.into() {
+            f64::from(scaled_config.new_multiplier)
+        } else {
+            f64::from(scaled_config.multiplier)
+        }
+    } else {
+        1.0f64
+    };
+
+    let price_u128 = price_message.price as u128;
+    let multiplier_fixed = (multiplier_f64 * 1_000_000_000.0f64) as u128;
+
+    let stock_decimals = stock_mint.decimals as i32;
+    let stable_decimals = usd_decimals as i32;
+    let exp = price_message.exponent;
+    let net_exp = stable_decimals
+        .checked_add(exp)
+        .ok_or(VaultError::MathOverflow)?
+        .checked_sub(stock_decimals)
+        .ok_or(VaultError::MathOverflow)?
+        .checked_sub(9)
+        .ok_or(VaultError::MathOverflow)?;
+
+    let denominator = price_u128
+        .checked_mul(multiplier_fixed)
+        .ok_or(VaultError::MathOverflow)?;
+
+    let collateral_amount = if net_exp < 0 {
+        let divisor_pow = (-net_exp) as u32;
+        let scale = 10u128.checked_pow(divisor_pow).ok_or(VaultError::MathOverflow)?;
+        usd_value
+            .checked_mul(scale)
+            .ok_or(VaultError::MathOverflow)?
+            .checked_div(denominator)
+            .ok_or(VaultError::MathOverflow)?
+    } else {
+        let multiplier_pow = net_exp as u32;
+        let scale = 10u128.checked_pow(multiplier_pow).ok_or(VaultError::MathOverflow)?;
+        let scaled_den = denominator
+            .checked_mul(scale)
+            .ok_or(VaultError::MathOverflow)?;
+        usd_value
+            .checked_div(scaled_den)
+            .ok_or(VaultError::MathOverflow)?
+    };
+
+    Ok(collateral_amount as u64)
 }
 
 #[cfg(test)]

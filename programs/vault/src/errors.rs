@@ -28,4 +28,8 @@ pub enum VaultError {
     InvalidPriceFeed,
     #[msg("Withdrawal would break collateralization limit")]
     WithdrawWouldBreakCollateralization,
+    #[msg("Vault is not eligible for liquidation")]
+    VaultNotUndercollateralized,
+    #[msg("Vault has no collateral to liquidate")]
+    NoCollateralToLiquidate,
 }

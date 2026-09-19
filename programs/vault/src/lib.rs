@@ -31,4 +31,8 @@ pub mod vault {
     pub fn borrow(ctx: Context<Borrow>, amount: u64) -> Result<()> {
         instructions::borrow::handle(ctx, amount)
     }
+
+    pub fn liquidate(ctx: Context<Liquidate>) -> Result<()> {
+        instructions::liquidate::handle(ctx)
+    }
 }
