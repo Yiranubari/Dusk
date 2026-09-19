@@ -8,7 +8,7 @@ pub use errors::*;
 pub use state::*;
 pub use instructions::*;
 
-declare_id!("DcqNBKGGXjaLXGftVsxXUrpePY9GU65UcDiPikDUtH35");
+declare_id!("5nHB2F1c5fzXiiUwpQqY6RT6nXfboQfMGiBnMSkCAJc9");
 
 #[program]
 pub mod market_state {

@@ -6,3 +6,4 @@ node_modules/
 dusk-prd.pdf
 
 crucible/
+.aider*

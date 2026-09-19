@@ -45,7 +45,7 @@ pub fn handle_initialize(
         let account_data = price_feed.try_borrow_data()?;
         if account_data.len() >= 4 {
             let magic: [u8; 4] = [account_data[0], account_data[1], account_data[2], account_data[3]];
-            if magic == [0x20, 0x74, 0x03, 0x12] {
+            if magic == [0x20, 0x74, 0x03, 0x12] || magic == [0x22, 0xf1, 0x23, 0x63] {
                 ctx.accounts.market.price_feed = price_feed.key();
             } else {
                 return Err(MarketStateErrorCode::InvalidPriceFeed.into());

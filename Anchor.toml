@@ -1,12 +1,13 @@
 [toolchain]
+anchor_version = "1.1.2"
 
 [features]
 resolution = true
-skip-lint = false
+skip-lint = true
 
 [programs.localnet]
-market_state = "DcqNBKGGXjaLXGftVsxXUrpePY9GU65UcDiPikDUtH35"
-vault = "9BFXopHo6M4VRoLaGwdnt1Ht1Y7EMzY6rW3H8PbKpjoB"
+market_state = "5nHB2F1c5fzXiiUwpQqY6RT6nXfboQfMGiBnMSkCAJc9"
+vault = "AB41HEqA7PfEbysT5c9DX7A9MNa65GDpG397CoN5cj3z"
 
 [provider]
 cluster = "localnet"

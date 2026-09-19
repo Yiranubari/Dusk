@@ -13,13 +13,16 @@ default = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-log-ix-name = []
-idl-build = ["anchor-lang/idl-build"]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 anchor-debug = []
 custom-heap = []
 custom-panic = []
 
 [dependencies]
 anchor-lang.workspace = true
+anchor-spl = { version = "1.1.2", features = ["token_2022", "associated_token"] }
+pyth-solana-receiver-sdk = "2.0.0"
+market_state = { path = "../market_state", features = ["cpi"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
