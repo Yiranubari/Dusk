@@ -46,4 +46,14 @@ pub enum VaultError {
     StrikePriceOverflow,
     #[msg("Unauthorized")]
     Unauthorized,
+    #[msg("Invalid stream schedule")]
+    InvalidStreamSchedule,
+    #[msg("Invalid stream amount")]
+    InvalidStreamAmount,
+    #[msg("Stream is not active")]
+    StreamNotActive,
+    #[msg("Stream is not revocable")]
+    StreamNotRevocable,
+    #[msg("Nothing currently claimable from stream")]
+    NothingToClaim,
 }

@@ -28,10 +28,17 @@ pub struct Vault {
     pub strike_price: u64,
     pub expiry_timestamp: i64,
     pub notional_amount: u64,
+    pub stream_recipient: Pubkey,
+    pub stream_start: i64,
+    pub stream_end: i64,
+    pub stream_cliff: i64,
+    pub stream_total_amount: u64,
+    pub stream_released_amount: u64,
+    pub stream_revocable: bool,
 }
 
 impl Vault {
-    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 32 + 1 + 8 + 8 + 8;
+    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 32 + 1 + 8 + 8 + 8 + 32 + 8 + 8 + 8 + 8 + 8 + 1;
 }
 
 impl Default for Vault {
@@ -47,6 +54,13 @@ impl Default for Vault {
             strike_price: 0,
             expiry_timestamp: 0,
             notional_amount: 0,
+            stream_recipient: Pubkey::default(),
+            stream_start: 0,
+            stream_end: 0,
+            stream_cliff: 0,
+            stream_total_amount: 0,
+            stream_released_amount: 0,
+            stream_revocable: false,
         }
     }
 }

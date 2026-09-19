@@ -43,4 +43,24 @@ pub mod vault {
     pub fn settle_option(ctx: Context<SettleOption>) -> Result<()> {
         instructions::settle_option::handle(ctx)
     }
+
+    pub fn setup_stream(
+        ctx: Context<SetupStream>,
+        recipient: Pubkey,
+        start: i64,
+        end: i64,
+        cliff: i64,
+        amount: u64,
+        revocable: bool,
+    ) -> Result<()> {
+        instructions::setup_stream::handle(ctx, recipient, start, end, cliff, amount, revocable)
+    }
+
+    pub fn claim_stream(ctx: Context<ClaimStream>) -> Result<()> {
+        instructions::claim_stream::handle(ctx)
+    }
+
+    pub fn revoke_stream(ctx: Context<RevokeStream>) -> Result<()> {
+        instructions::revoke_stream::handle(ctx)
+    }
 }

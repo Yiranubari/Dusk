@@ -198,6 +198,35 @@ pub fn calculate_collateral_from_usd<'info>(
     Ok(collateral_amount as u64)
 }
 
+pub fn validate_market_and_feed_staleness(
+    market: &market_state::Market,
+    price_update: &PriceUpdateV2,
+    clock: &Clock,
+) -> Result<()> {
+    require!(market.state != market_state::MarketState::Stale, VaultError::MarketStateStale);
+
+    let price_message = &price_update.price_message;
+    require!(price_message.price > 0, VaultError::InvalidPrice);
+
+    let age = clock.unix_timestamp
+        .checked_sub(price_message.publish_time)
+        .ok_or(VaultError::MathOverflow)?;
+
+    require!(age <= market.max_feed_age, VaultError::PriceFeedStale);
+
+    let conf_scaled = (price_message.conf as u128)
+        .checked_mul(10_000)
+        .ok_or(VaultError::MathOverflow)?;
+
+    let threshold_scaled = (price_message.price as u128)
+        .checked_mul(market.confidence_threshold as u128)
+        .ok_or(VaultError::MathOverflow)?;
+
+    require!(conf_scaled <= threshold_scaled, VaultError::PriceConfidenceTooWide);
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

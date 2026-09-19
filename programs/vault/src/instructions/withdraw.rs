@@ -22,21 +22,21 @@ pub struct Withdraw<'info> {
         seeds = [b"vault", user.key().as_ref(), stock_mint.key().as_ref()],
         bump = vault.bump,
     )]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
-    pub stock_mint: InterfaceAccount<'info, Mint>,
+    pub stock_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         constraint = market_state.key() == vault.market_state @ VaultError::InvalidMarketState
     )]
-    pub market_state: Account<'info, market_state::Market>,
+    pub market_state: Box<Account<'info, market_state::Market>>,
 
     #[account(
         constraint = price_update.key() == market_state.price_feed @ VaultError::InvalidPriceFeed
     )]
-    pub price_update: Account<'info, PriceUpdateV2>,
+    pub price_update: Box<Account<'info, PriceUpdateV2>>,
 
-    pub stablecoin_mint: InterfaceAccount<'info, Mint>,
+    pub stablecoin_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
@@ -44,7 +44,7 @@ pub struct Withdraw<'info> {
         associated_token::authority = user,
         associated_token::token_program = token_program,
     )]
-    pub user_token_account: InterfaceAccount<'info, SplTokenAccount>,
+    pub user_token_account: Box<InterfaceAccount<'info, SplTokenAccount>>,
 
     #[account(
         mut,
@@ -52,7 +52,7 @@ pub struct Withdraw<'info> {
         associated_token::authority = vault,
         associated_token::token_program = token_program,
     )]
-    pub vault_token_account: InterfaceAccount<'info, SplTokenAccount>,
+    pub vault_token_account: Box<InterfaceAccount<'info, SplTokenAccount>>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
