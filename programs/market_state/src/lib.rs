@@ -29,4 +29,11 @@ pub mod market_state {
     ) -> Result<()> {
         instructions::update_market_state::handle_update(ctx, new_state)
     }
+
+    pub fn set_paused(
+        ctx: Context<SetPaused>,
+        paused: bool,
+    ) -> Result<()> {
+        instructions::set_paused::handle_set_paused(ctx, paused)
+    }
 }

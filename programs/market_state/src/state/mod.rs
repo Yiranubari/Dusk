@@ -38,11 +38,12 @@ pub struct Market {
     pub price_feed: Pubkey,
     pub confidence_threshold: u64,
     pub max_feed_age: i64,
+    pub is_paused: bool,
 }
 
 impl Market {
     pub const MAX_MARKET_ID_LEN: usize = 16;
-    pub const LEN: usize = 8 + 32 + 1 + 4 + Self::MAX_MARKET_ID_LEN + 8 + 8 + 32 + 8 + 8;
+    pub const LEN: usize = 8 + 32 + 1 + 4 + Self::MAX_MARKET_ID_LEN + 8 + 8 + 32 + 8 + 8 + 1;
 }
 
 impl Default for Market {
@@ -56,6 +57,7 @@ impl Default for Market {
             price_feed: Pubkey::default(),
             confidence_threshold: 0,
             max_feed_age: 3600,
+            is_paused: false,
         }
     }
 }

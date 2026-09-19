@@ -54,6 +54,7 @@ pub fn handle_initialize(
     }
     ctx.accounts.market.confidence_threshold = confidence_threshold;
     ctx.accounts.market.max_feed_age = max_feed_age;
+    ctx.accounts.market.is_paused = false;
 
     Ok(())
 }

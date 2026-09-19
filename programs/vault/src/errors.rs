@@ -56,4 +56,6 @@ pub enum VaultError {
     StreamNotRevocable,
     #[msg("Nothing currently claimable from stream")]
     NothingToClaim,
+    #[msg("Protocol is paused")]
+    ProtocolPaused,
 }

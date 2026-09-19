@@ -15,6 +15,8 @@ pub fn validate_market_and_feed(
     price_update: &PriceUpdateV2,
     clock: &Clock,
 ) -> Result<u64> {
+    require!(!market.is_paused, VaultError::ProtocolPaused);
+
     let ltv_bps = match market.state {
         market_state::MarketState::Open => LTV_OPEN_BPS,
         market_state::MarketState::Closed => LTV_CLOSED_BPS,
