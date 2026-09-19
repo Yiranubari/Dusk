@@ -513,7 +513,124 @@ describe("Vault Withdraw (Token-2022)", () => {
     }
   });
 
-  it("INCOMPLETE: withdraw rejects with StrategyActive when active_strategy != None", function() {
-    this.skip();
+  it("withdraw rejects with StrategyActive when active_strategy != None", async () => {
+    const ccStockKeypair = Keypair.generate();
+    const extensions = [ExtensionType.ScaledUiAmountConfig];
+    const mintLen = getMintLen(extensions);
+    const lamports = await provider.connection.getMinimumBalanceForRentExemption(mintLen);
+
+    const initTx = new Transaction().add(
+      SystemProgram.createAccount({
+        fromPubkey: wallet.publicKey,
+        newAccountPubkey: ccStockKeypair.publicKey,
+        space: mintLen,
+        lamports,
+        programId: TOKEN_2022_PROGRAM_ID,
+      }),
+      createInitializeScaledUiAmountConfigInstruction(
+        ccStockKeypair.publicKey,
+        wallet.publicKey,
+        1.0,
+        TOKEN_2022_PROGRAM_ID
+      ),
+      createInitializeMintInstruction(
+        ccStockKeypair.publicKey,
+        8,
+        wallet.publicKey,
+        null,
+        TOKEN_2022_PROGRAM_ID
+      )
+    );
+    await sendAndConfirmTransaction(provider.connection, initTx, [wallet.payer, ccStockKeypair]);
+
+    const ccUserStockAta = await getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      wallet.payer,
+      ccStockKeypair.publicKey,
+      wallet.publicKey,
+      false,
+      "confirmed",
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    await mintTo(
+      provider.connection,
+      wallet.payer,
+      ccStockKeypair.publicKey,
+      ccUserStockAta.address,
+      wallet.publicKey,
+      1_000_000_000,
+      [],
+      undefined,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    const [ccVaultPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), wallet.publicKey.toBuffer(), ccStockKeypair.publicKey.toBuffer()],
+      vaultProgram.programId
+    );
+
+    const [ccVaultStockAta] = PublicKey.findProgramAddressSync(
+      [ccVaultPda.toBuffer(), TOKEN_2022_PROGRAM_ID.toBuffer(), ccStockKeypair.publicKey.toBuffer()],
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+
+    await vaultProgram.methods
+      .deposit(new BN(100_000_000))
+      .accounts({
+        user: wallet.publicKey,
+        vault: ccVaultPda,
+        stockMint: ccStockKeypair.publicKey,
+        marketState: marketPda,
+        priceUpdate: pythAaplFeed,
+        stablecoinMint: stablecoinMint,
+        userTokenAccount: ccUserStockAta.address,
+        vaultTokenAccount: ccVaultStockAta,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .rpc();
+
+    const feedInfo = await provider.connection.getAccountInfo(pythAaplFeed);
+    const livePrice = feedInfo.data.readBigInt64LE(73);
+    const slot = await provider.connection.getSlot();
+    const now = await provider.connection.getBlockTime(slot);
+
+    await vaultProgram.methods
+      .mintOption(new BN(livePrice.toString()), new BN(now + 1000))
+      .accounts({
+        owner: wallet.publicKey,
+        vault: ccVaultPda,
+        stockMint: ccStockKeypair.publicKey,
+        marketState: marketPda,
+        priceUpdate: pythAaplFeed,
+      })
+      .rpc();
+
+    try {
+      await vaultProgram.methods
+        .withdraw(new BN(10_000_000))
+        .accounts({
+          user: wallet.publicKey,
+          vault: ccVaultPda,
+          stockMint: ccStockKeypair.publicKey,
+          marketState: marketPda,
+          priceUpdate: pythAaplFeed,
+          stablecoinMint: stablecoinMint,
+          userTokenAccount: ccUserStockAta.address,
+          vaultTokenAccount: ccVaultStockAta,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .rpc();
+      assert.fail("should have thrown StrategyActive");
+    } catch (e) {
+      assert.include(e.message, "StrategyActive");
+    }
   });
 });
