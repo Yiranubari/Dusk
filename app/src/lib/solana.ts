@@ -27,6 +27,7 @@ export const DISCRIMINATORS = {
   setup_stream: Buffer.from([199, 247, 128, 137, 134, 96, 118, 187]),
   revoke_stream: Buffer.from([43, 146, 245, 96, 243, 115, 170, 52]),
   settle_option: Buffer.from([106, 24, 215, 51, 68, 138, 106, 175]),
+  liquidate: Buffer.from([223, 179, 226, 125, 48, 46, 39, 74]),
 }
 
 export type OnChainVault = {
@@ -455,4 +456,105 @@ export async function fetchOnChainVault(
     return null
   }
   return decodeVaultAccount(accountInfo.data)
+}
+
+export function buildLiquidateInstruction(
+  liquidator: PublicKey,
+  vaultOwner: PublicKey,
+  stockMint: PublicKey,
+  marketStatePubkey: PublicKey,
+  priceFeedPubkey: PublicKey,
+  stablecoinMint: PublicKey = DEFAULT_STABLECOIN_MINT,
+  tokenProgram = TOKEN_2022_PROGRAM_ID,
+  stablecoinTokenProgram = TOKEN_PROGRAM_ID,
+): { transaction: Transaction } {
+  const [vaultPda] = findVaultPda(vaultOwner, stockMint)
+  const vaultStablecoinAta = findAssociatedTokenAddress(stablecoinMint, vaultPda, true, stablecoinTokenProgram)
+  const liquidatorStablecoinAta = findAssociatedTokenAddress(stablecoinMint, liquidator, false, stablecoinTokenProgram)
+  const vaultTokenAta = findAssociatedTokenAddress(stockMint, vaultPda, true, tokenProgram)
+  const liquidatorTokenAta = findAssociatedTokenAddress(stockMint, liquidator, false, tokenProgram)
+
+  const transaction = new Transaction()
+
+  transaction.add(
+    createAssociatedTokenAccountIdempotentInstruction(
+      liquidator,
+      liquidatorTokenAta,
+      liquidator,
+      stockMint,
+      tokenProgram,
+    ),
+  )
+
+  const data = DISCRIMINATORS.liquidate
+
+  const liquidateIx = new TransactionInstruction({
+    programId: VAULT_PROGRAM_ID,
+    keys: [
+      { pubkey: liquidator, isSigner: true, isWritable: true },
+      { pubkey: vaultPda, isSigner: false, isWritable: true },
+      { pubkey: stockMint, isSigner: false, isWritable: false },
+      { pubkey: marketStatePubkey, isSigner: false, isWritable: false },
+      { pubkey: priceFeedPubkey, isSigner: false, isWritable: false },
+      { pubkey: stablecoinMint, isSigner: false, isWritable: false },
+      { pubkey: vaultStablecoinAta, isSigner: false, isWritable: true },
+      { pubkey: liquidatorStablecoinAta, isSigner: false, isWritable: true },
+      { pubkey: vaultTokenAta, isSigner: false, isWritable: true },
+      { pubkey: liquidatorTokenAta, isSigner: false, isWritable: true },
+      { pubkey: tokenProgram, isSigner: false, isWritable: false },
+      { pubkey: stablecoinTokenProgram, isSigner: false, isWritable: false },
+      { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+    ],
+    data,
+  })
+
+  transaction.add(liquidateIx)
+  return { transaction }
+}
+
+export type PythPriceData = {
+  feedId: string
+  price: number
+  conf: number
+  publishTime: number
+}
+
+export function decodePriceUpdateV2(data: Buffer): PythPriceData {
+  let offset = 8 + 32 + 1
+  const feedId = data.subarray(offset, offset + 32).toString('hex')
+  offset += 32
+  const price = data.readBigInt64LE(offset)
+  offset += 8
+  const conf = data.readBigUInt64LE(offset)
+  offset += 8
+  const expo = data.readInt32LE(offset)
+  offset += 4
+  const publishTime = Number(data.readBigInt64LE(offset))
+
+  const realPrice = Number(price) * Math.pow(10, expo)
+  const realConf = Number(conf) * Math.pow(10, expo)
+
+  return {
+    feedId,
+    price: realPrice,
+    conf: realConf,
+    publishTime,
+  }
+}
+
+export async function fetchOnChainPythPrice(
+  connection: Connection,
+  priceFeedPubkey: PublicKey,
+): Promise<PythPriceData | null> {
+  try {
+    const accountInfo = await connection.getAccountInfo(priceFeedPubkey)
+    if (!accountInfo || accountInfo.data.length < 90) {
+      return null
+    }
+    return decodePriceUpdateV2(accountInfo.data)
+  } catch {
+    return null
+  }
 }

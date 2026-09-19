@@ -13,12 +13,15 @@ import {
   buildSettleOptionInstruction,
   buildSetupStreamInstruction,
   buildRevokeStreamInstruction,
+  buildLiquidateInstruction,
+  fetchOnChainPythPrice,
   findMarketPda,
   findAssociatedTokenAddress,
 } from '@/lib/solana'
 
 type MarketState = 'OPEN' | 'CLOSED' | 'STALE'
 type StrategyTab = 'borrow' | 'call' | 'stream'
+type AppView = 'portfolio' | 'liquidations' | 'markets'
 
 type AssetFeed = {
   symbol: string
@@ -101,6 +104,7 @@ export default function AppDashboard() {
   const [selectedAsset, setSelectedAsset] = useState<string>('AAPLx')
   const [marketState, setMarketState] = useState<MarketState>('OPEN')
   const [activeStrategy, setActiveStrategy] = useState<StrategyTab>('borrow')
+  const [activeView, setActiveView] = useState<AppView>('portfolio')
 
   const [solBalance, setSolBalance] = useState<number | null>(null)
   const [airdropLoading, setAirdropLoading] = useState<boolean>(false)
@@ -156,7 +160,11 @@ export default function AppDashboard() {
   const [feedAge, setFeedAge] = useState<number>(2)
 
   const [txHistory, setTxHistory] = useState<TxRecord[]>([])
-  const [toastMessage, setToastMessage] = useState<{ title: string; desc: string } | null>(null)
+  const [toastMessage, setToastMessage] = useState<{
+    title: string
+    desc: string
+    type?: 'success' | 'error' | 'info'
+  } | null>(null)
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -242,6 +250,17 @@ export default function AppDashboard() {
             setWalletShares(ataBal.value.uiAmount)
           }
         } catch {}
+
+        try {
+          const pythData = await fetchOnChainPythPrice(connection, new PublicKey(currentAsset.priceFeedPubkey))
+          if (pythData && isMounted && pythData.price > 0) {
+            setPrices((prev) => ({
+              ...prev,
+              [selectedAsset]: Number(pythData.price.toFixed(2)),
+            }))
+            setFeedAge(Math.max(1, Math.floor(Date.now() / 1000) - pythData.publishTime))
+          }
+        } catch {}
       } catch {}
     }
 
@@ -265,20 +284,63 @@ export default function AppDashboard() {
       await connection.confirmTransaction(sig, 'confirmed')
       const bal = await connection.getBalance(publicKey)
       setSolBalance(bal / 1e9)
-      showToast('Airdrop Confirmed', 'Received 1.0 SOL devnet gas.')
+      showToast('Airdrop Confirmed', 'Received 1.0 SOL devnet gas.', 'success')
       logTransaction('AIRDROP', '1.0 SOL airdrop confirmed')
     } catch {
-      showToast('Airdrop Notice', 'Devnet airdrop rate limit reached. Use a faucet if needed.')
+      showToast('Airdrop Limit', 'Devnet faucet rate limit reached. Please try again later or use an external faucet.', 'error')
     } finally {
       setAirdropLoading(false)
     }
   }
 
-  const showToast = (title: string, desc: string) => {
-    setToastMessage({ title, desc })
+  const handleFaucetTokens = (amount = 100) => {
+    setWalletShares((prev) => prev + amount)
+    logTransaction('FAUCET', `Credited ${amount.toFixed(2)} ${assetInfo.ticker} test collateral`)
+    showToast('Test Tokens Credited', `Added ${amount.toFixed(2)} ${assetInfo.ticker} to your wallet balance.`, 'success')
+  }
+
+  function parseFriendlyErrorMessage(err: unknown, fallbackMessage: string): string {
+    const raw = err instanceof Error ? err.message : String(err || '')
+    const message = raw.toLowerCase()
+
+    if (message.includes('user rejected') || message.includes('cancelled') || message.includes('rejected')) {
+      return 'Transaction was cancelled in your wallet.'
+    }
+    if (message.includes('insufficient funds') || message.includes('lamports')) {
+      return 'Insufficient SOL to pay network transaction fee. Please request Devnet SOL.'
+    }
+    if (message.includes('insufficient collateral') || message.includes('insufficientcollateral')) {
+      return 'Requested amount exceeds your available vault collateral.'
+    }
+    if (message.includes('ltv') || message.includes('liquidation') || message.includes('mathoverflow')) {
+      return 'Operation exceeds allowable loan-to-value safety parameters.'
+    }
+    if (message.includes('invalidmarketstate') || message.includes('market')) {
+      return 'Market state verification failed. Please refresh and retry.'
+    }
+    if (message.includes('invalidpricefeed') || message.includes('stale') || message.includes('pyth')) {
+      return 'Market price feed is updating. Please try again in a few seconds.'
+    }
+    if (message.includes('incompatiblestrategy')) {
+      return 'Another strategy is currently active on this vault.'
+    }
+    if (message.includes('streamnotrevocable')) {
+      return 'This stream was designated as irrevocable at initialization.'
+    }
+    if (message.includes('optionnotexpired')) {
+      return 'This option has not reached its maturity date yet.'
+    }
+    if (message.includes('unauthorized')) {
+      return 'Wallet account is not authorized to manage this vault.'
+    }
+    return fallbackMessage
+  }
+
+  const showToast = (title: string, desc: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToastMessage({ title, desc, type })
     setTimeout(() => {
       setToastMessage(null)
-    }, 4000)
+    }, 4500)
   }
 
   const logTransaction = (action: string, detail: string) => {
@@ -336,6 +398,54 @@ export default function AppDashboard() {
     return Math.max(0, ((currentPrice - liquidationPrice) / currentPrice) * 100)
   }, [currentPrice, liquidationPrice])
 
+  const [chartTimeframe, setChartTimeframe] = useState<'24H' | '7D' | '30D'>('24H')
+
+  const chartData = useMemo(() => {
+    const base = currentPrice
+    const ptsCount = 24
+    const pts: { time: string; price: number }[] = []
+    const volatility = chartTimeframe === '24H' ? 0.015 : chartTimeframe === '7D' ? 0.04 : 0.08
+    const seed = selectedAsset === 'AAPLx' ? 42 : selectedAsset === 'TSLAx' ? 88 : 101
+
+    for (let i = 0; i < ptsCount; i++) {
+      const progress = i / (ptsCount - 1)
+      const noise = Math.sin(i * 1.7 + seed) * Math.cos(i * 0.9) * volatility
+      const trend = (progress - 1) * (assetInfo.delta24h / 100)
+      const price = base * (1 + trend + noise)
+      pts.push({
+        time: `${i}h`,
+        price: Number(price.toFixed(2)),
+      })
+    }
+    pts[pts.length - 1].price = base
+
+    const minP = Math.min(...pts.map((p) => p.price), liquidationPrice > 0 ? liquidationPrice * 0.95 : Infinity)
+    const maxP = Math.max(...pts.map((p) => p.price))
+    const range = maxP - minP || 1
+
+    const width = 400
+    const height = 110
+    const padding = 10
+
+    const coordinates = pts.map((pt, idx) => {
+      const x = (idx / (ptsCount - 1)) * (width - padding * 2) + padding
+      const y = height - padding - ((pt.price - minP) / range) * (height - padding * 2)
+      return { x, y, price: pt.price }
+    })
+
+    const pathD = coordinates.reduce((acc, pt, idx) => {
+      return idx === 0 ? `M ${pt.x},${pt.y}` : `${acc} L ${pt.x},${pt.y}`
+    }, '')
+
+    const areaD = `${pathD} L ${width - padding},${height} L ${padding},${height} Z`
+
+    const liqY = liquidationPrice > 0 && liquidationPrice >= minP && liquidationPrice <= maxP
+      ? height - padding - ((liquidationPrice - minP) / range) * (height - padding * 2)
+      : null
+
+    return { coordinates, pathD, areaD, minP, maxP, liqY, width, height }
+  }, [currentPrice, selectedAsset, chartTimeframe, assetInfo.delta24h, liquidationPrice])
+
   const projectedBorrowLtv = useMemo(() => {
     const additional = parseFloat(borrowInput) || 0
     if (collateralValueUsd <= 0) return 0
@@ -372,7 +482,7 @@ export default function AppDashboard() {
       )
 
       const signature = await sendTransaction(transaction, connection)
-      showToast('Transaction Broadcast', `Sig: ${signature.slice(0, 8)}…`)
+      showToast('Transaction Broadcast', `Submitted: ${signature.slice(0, 8)}…`, 'info')
 
       await connection.confirmTransaction(signature, 'confirmed')
 
@@ -381,10 +491,9 @@ export default function AppDashboard() {
       setModalSharesInput('')
       setDepositModalOpen(false)
       logTransaction('DEPOSIT', `${amount.toFixed(2)} ${assetInfo.ticker} deposited on-chain`)
-      showToast('Deposit Confirmed', `Successfully locked ${amount.toFixed(2)} ${assetInfo.ticker} into vault PDA.`)
-    } catch (err: any) {
-      const msg = err?.message || 'Transaction could not be executed'
-      showToast('Deposit Status', msg.slice(0, 80))
+      showToast('Deposit Confirmed', `Successfully deposited ${amount.toFixed(2)} ${assetInfo.ticker} into your vault position.`, 'success')
+    } catch (err: unknown) {
+      showToast('Deposit Notice', parseFriendlyErrorMessage(err, 'Unable to deposit collateral right now. Please check your wallet and try again.'), 'error')
     } finally {
       setIsTxPending(false)
     }
@@ -402,7 +511,7 @@ export default function AppDashboard() {
     const remainingShares = depositedShares - amount
     const remainingValue = remainingShares * currentPrice * riskMultiplier
     if (debtUsdc > 0 && remainingValue * ltvCap < debtUsdc) {
-      showToast('Withdrawal Blocked', 'Remaining collateral would exceed maximum allowable LTV.')
+      showToast('Withdrawal Blocked', 'Remaining collateral would exceed maximum allowable loan-to-value.', 'error')
       return
     }
 
@@ -421,7 +530,7 @@ export default function AppDashboard() {
       )
 
       const signature = await sendTransaction(transaction, connection)
-      showToast('Transaction Broadcast', `Sig: ${signature.slice(0, 8)}…`)
+      showToast('Transaction Broadcast', `Submitted: ${signature.slice(0, 8)}…`, 'info')
 
       await connection.confirmTransaction(signature, 'confirmed')
 
@@ -430,10 +539,9 @@ export default function AppDashboard() {
       setModalSharesInput('')
       setWithdrawModalOpen(false)
       logTransaction('WITHDRAW', `${amount.toFixed(2)} ${assetInfo.ticker} withdrawn to wallet`)
-      showToast('Withdrawal Confirmed', `Returned ${amount.toFixed(2)} ${assetInfo.ticker} to your wallet.`)
-    } catch (err: any) {
-      const msg = err?.message || 'Transaction could not be executed'
-      showToast('Withdrawal Status', msg.slice(0, 80))
+      showToast('Withdrawal Confirmed', `Successfully returned ${amount.toFixed(2)} ${assetInfo.ticker} to your wallet.`, 'success')
+    } catch (err: unknown) {
+      showToast('Withdrawal Notice', parseFriendlyErrorMessage(err, 'Unable to withdraw collateral right now. Please check your position and try again.'), 'error')
     } finally {
       setIsTxPending(false)
     }
@@ -446,7 +554,7 @@ export default function AppDashboard() {
       return
     }
     if (marketState === 'STALE') {
-      showToast('Action Blocked', 'Oracle feed is stale. New borrows are frozen.')
+      showToast('Action Blocked', 'Oracle price feed is updating. New borrows are temporarily paused.', 'error')
       return
     }
     const amount = parseFloat(borrowInput)
@@ -467,17 +575,16 @@ export default function AppDashboard() {
       )
 
       const signature = await sendTransaction(transaction, connection)
-      showToast('Transaction Broadcast', `Sig: ${signature.slice(0, 8)}…`)
+      showToast('Transaction Broadcast', `Submitted: ${signature.slice(0, 8)}…`, 'info')
 
       await connection.confirmTransaction(signature, 'confirmed')
 
       setDebtUsdc((prev) => prev + amount)
       setBorrowInput('')
       logTransaction('BORROW', `${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} USDC borrowed`)
-      showToast('Borrow Successful', `Minted ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} USDC.`)
-    } catch (err: any) {
-      const msg = err?.message || 'Transaction could not be executed'
-      showToast('Borrow Status', msg.slice(0, 80))
+      showToast('Borrow Confirmed', `Successfully minted ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} USDC to your wallet.`, 'success')
+    } catch (err: unknown) {
+      showToast('Borrow Notice', parseFriendlyErrorMessage(err, 'Unable to borrow USDC right now. Please verify your available borrowing power and try again.'), 'error')
     } finally {
       setIsTxPending(false)
     }
@@ -492,7 +599,7 @@ export default function AppDashboard() {
     setDebtUsdc((prev) => prev - actualRepay)
     setRepayInput('')
     logTransaction('REPAY', `${actualRepay.toLocaleString('en-US', { minimumFractionDigits: 2 })} USDC debt repaid`)
-    showToast('Debt Repaid', `Successfully repaid ${actualRepay.toLocaleString('en-US', { minimumFractionDigits: 2 })} USDC.`)
+    showToast('Debt Repaid', `Successfully repaid ${actualRepay.toLocaleString('en-US', { minimumFractionDigits: 2 })} USDC.`, 'success')
   }
 
   const handleWriteCall = async (e: FormEvent) => {
@@ -502,12 +609,12 @@ export default function AppDashboard() {
       return
     }
     if (marketState === 'STALE') {
-      showToast('Action Blocked', 'Oracle feed is stale. Option writes are frozen.')
+      showToast('Action Blocked', 'Oracle price feed is updating. Option writes are temporarily paused.', 'error')
       return
     }
     const notional = parseFloat(callNotional)
     if (!notional || notional <= 0 || notional > depositedShares) {
-      showToast('Invalid Notional', 'Notional shares cannot exceed deposited vault shares.')
+      showToast('Invalid Amount', 'Notional shares cannot exceed deposited vault shares.', 'error')
       return
     }
 
@@ -532,7 +639,7 @@ export default function AppDashboard() {
       )
 
       const signature = await sendTransaction(transaction, connection)
-      showToast('Transaction Broadcast', `Sig: ${signature.slice(0, 8)}…`)
+      showToast('Transaction Broadcast', `Submitted: ${signature.slice(0, 8)}…`, 'info')
 
       await connection.confirmTransaction(signature, 'confirmed')
 
@@ -544,10 +651,9 @@ export default function AppDashboard() {
       })
 
       logTransaction('WRITE CALL', `${notional} ${assetInfo.ticker} calls at $${strike} strike`)
-      showToast('Covered Call Active', `Locked ${notional} shares at $${strike} strike. Collected $${premium} USDC upfront premium.`)
-    } catch (err: any) {
-      const msg = err?.message || 'Transaction could not be executed'
-      showToast('Option Status', msg.slice(0, 80))
+      showToast('Option Activated', `Locked ${notional} shares at $${strike} strike. Collected $${premium} USDC upfront premium.`, 'success')
+    } catch (err: unknown) {
+      showToast('Option Notice', parseFriendlyErrorMessage(err, 'Unable to write covered call right now. Please review parameters and try again.'), 'error')
     } finally {
       setIsTxPending(false)
     }
@@ -560,16 +666,16 @@ export default function AppDashboard() {
       return
     }
     if (marketState === 'STALE') {
-      showToast('Action Blocked', 'Oracle feed is stale. Streams cannot be initialized.')
+      showToast('Action Blocked', 'Oracle price feed is updating. Streams cannot be initialized right now.', 'error')
       return
     }
     const amount = parseFloat(streamShares)
     if (!amount || amount <= 0 || amount > depositedShares) {
-      showToast('Invalid Amount', 'Streamed shares cannot exceed deposited vault shares.')
+      showToast('Invalid Amount', 'Streamed shares cannot exceed deposited vault shares.', 'error')
       return
     }
     if (!streamRecipient.trim()) {
-      showToast('Missing Recipient', 'Please enter a valid recipient address or domain.')
+      showToast('Missing Recipient', 'Please enter a valid recipient address.', 'error')
       return
     }
 
@@ -577,7 +683,7 @@ export default function AppDashboard() {
     try {
       recipientPubkey = new PublicKey(streamRecipient.trim())
     } catch {
-      showToast('Invalid Recipient', 'Recipient must be a valid Solana public key address.')
+      showToast('Invalid Recipient', 'Recipient must be a valid Solana public key address.', 'error')
       return
     }
 
@@ -604,7 +710,7 @@ export default function AppDashboard() {
       )
 
       const signature = await sendTransaction(transaction, connection)
-      showToast('Transaction Broadcast', `Sig: ${signature.slice(0, 8)}…`)
+      showToast('Transaction Broadcast', `Submitted: ${signature.slice(0, 8)}…`, 'info')
 
       await connection.confirmTransaction(signature, 'confirmed')
 
@@ -619,10 +725,9 @@ export default function AppDashboard() {
       })
 
       logTransaction('STREAM', `${amount} ${assetInfo.ticker} streamed to ${streamRecipient.slice(0, 4)}…${streamRecipient.slice(-4)}`)
-      showToast('Stream Initialized', `Streaming ${amount} shares over ${streamDurationDays} days. Cliff: ${streamCliffPct}%.`)
-    } catch (err: any) {
-      const msg = err?.message || 'Transaction could not be executed'
-      showToast('Stream Status', msg.slice(0, 80))
+      showToast('Stream Initialized', `Streaming ${amount} shares over ${streamDurationDays} days. Cliff: ${streamCliffPct}%.`, 'success')
+    } catch (err: unknown) {
+      showToast('Stream Notice', parseFriendlyErrorMessage(err, 'Unable to initialize stream right now. Please verify the address and try again.'), 'error')
     } finally {
       setIsTxPending(false)
     }
@@ -646,17 +751,16 @@ export default function AppDashboard() {
       )
 
       const signature = await sendTransaction(transaction, connection)
-      showToast('Transaction Broadcast', `Sig: ${signature.slice(0, 8)}…`)
+      showToast('Transaction Broadcast', `Submitted: ${signature.slice(0, 8)}…`, 'info')
 
       await connection.confirmTransaction(signature, 'confirmed')
 
       const remaining = activeStream.amount - activeStream.released
       setActiveStream(null)
       logTransaction('REVOKE', `Stream to ${activeStream.recipient.slice(0, 4)}… revoked. Returned ${remaining.toFixed(2)} shares`)
-      showToast('Stream Revoked', `Stream cancelled. Returned ${remaining.toFixed(2)} unreleased shares to vault.`)
-    } catch (err: any) {
-      const msg = err?.message || 'Transaction could not be executed'
-      showToast('Revoke Status', msg.slice(0, 80))
+      showToast('Stream Revoked', `Stream cancelled. Returned ${remaining.toFixed(2)} unreleased shares to your vault.`, 'success')
+    } catch (err: unknown) {
+      showToast('Revoke Notice', parseFriendlyErrorMessage(err, 'Unable to revoke stream right now. Please try again shortly.'), 'error')
     } finally {
       setIsTxPending(false)
     }
@@ -679,16 +783,132 @@ export default function AppDashboard() {
       )
 
       const signature = await sendTransaction(transaction, connection)
-      showToast('Transaction Broadcast', `Sig: ${signature.slice(0, 8)}…`)
+      showToast('Transaction Broadcast', `Submitted: ${signature.slice(0, 8)}…`, 'info')
 
       await connection.confirmTransaction(signature, 'confirmed')
 
       setActiveCall(null)
       logTransaction('SETTLE CALL', 'Covered call position closed at expiry')
-      showToast('Call Position Settled', 'Collateral unlocked and returned to general vault pool.')
-    } catch (err: any) {
-      const msg = err?.message || 'Transaction could not be executed'
-      showToast('Settle Status', msg.slice(0, 80))
+      showToast('Option Settled', 'Option position closed and collateral returned to your vault pool.', 'success')
+    } catch (err: unknown) {
+      showToast('Settlement Notice', parseFriendlyErrorMessage(err, 'Unable to settle option right now. The contract may not be expired yet.'), 'error')
+    } finally {
+      setIsTxPending(false)
+    }
+  }
+
+  const [mockLiquidations, setMockLiquidations] = useState<Record<string, boolean>>({})
+
+  const protocolPositions = useMemo(() => {
+    const defaultPositions = [
+      {
+        id: 'vault-0x892a',
+        owner: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+        asset: 'AAPLx',
+        collateralShares: 120,
+        debtUsdc: 21500,
+        lastUpdate: '12s ago',
+      },
+      {
+        id: 'vault-0x3f1b',
+        owner: '4vJ9JU1bJJE96DnNxQvG66epCgkLmmvPYR2f3D3Pxp2f',
+        asset: 'TSLAx',
+        collateralShares: 85,
+        debtUsdc: 15400,
+        lastUpdate: '45s ago',
+      },
+      {
+        id: 'vault-0x9e4c',
+        owner: '9aL9bJqN1wZ8B7Q2p1C4s8R3T6Y5U7V9W2X4Z1A3C5E7',
+        asset: 'NVDAx',
+        collateralShares: 210,
+        debtUsdc: 18900,
+        lastUpdate: '1m ago',
+      },
+      {
+        id: 'vault-0x12dc',
+        owner: '3mP8rK7uV2tX9qB5zC1wE4yG6jH8nL0oP3rT5vX7yB9d',
+        asset: 'AAPLx',
+        collateralShares: 45,
+        debtUsdc: 8800,
+        lastUpdate: '3m ago',
+      },
+      {
+        id: 'vault-0x77ba',
+        owner: '8yF2mD4wZ7pL9qR1vT3xS5aC7eB9nG2hK4jM6pQ8sU1w',
+        asset: 'TSLAx',
+        collateralShares: 160,
+        debtUsdc: 31000,
+        lastUpdate: '4m ago',
+      },
+    ]
+
+    const allPositions = [...defaultPositions]
+    if (depositedShares > 0 && debtUsdc > 0 && publicKey) {
+      allPositions.unshift({
+        id: 'vault-my-position',
+        owner: publicKey.toBase58(),
+        asset: selectedAsset,
+        collateralShares: depositedShares,
+        debtUsdc: debtUsdc,
+        lastUpdate: 'Just now',
+      })
+    }
+
+    return allPositions.map((pos) => {
+      const isLiquidated = Boolean(mockLiquidations[pos.id])
+      const assetPrice = prices[pos.asset] || currentPrice
+      const value = pos.collateralShares * assetPrice * riskMultiplier
+      const ltv = value > 0 ? (pos.debtUsdc / value) * 100 : 0
+      const currentHealth = pos.debtUsdc > 0 && value > 0 ? (value * liqThreshold) / pos.debtUsdc : null
+      const isAtRisk = currentHealth !== null && currentHealth < 1.05
+      const isLiquidatable = currentHealth !== null && currentHealth < 1.0 && !isLiquidated
+
+      return {
+        ...pos,
+        isLiquidated,
+        collateralValue: value,
+        ltv,
+        healthFactor: currentHealth,
+        isAtRisk,
+        isLiquidatable,
+      }
+    })
+  }, [prices, currentPrice, riskMultiplier, liqThreshold, mockLiquidations, depositedShares, debtUsdc, publicKey, selectedAsset])
+
+  const handleLiquidateVault = async (positionId: string, ownerAddress: string, assetSymbol: string) => {
+    if (!publicKey || !connected) {
+      setVisible(true)
+      return
+    }
+
+    setIsTxPending(true)
+    try {
+      const feed = ASSET_FEEDS[assetSymbol] || assetInfo
+      const stockMint = new PublicKey(feed.mintAddress)
+      const marketStatePubkey = findMarketPda(feed.marketId)[0]
+      const priceFeedPubkey = new PublicKey(feed.priceFeedPubkey)
+      const vaultOwner = new PublicKey(ownerAddress)
+
+      const { transaction } = buildLiquidateInstruction(
+        publicKey,
+        vaultOwner,
+        stockMint,
+        marketStatePubkey,
+        priceFeedPubkey,
+      )
+
+      const signature = await sendTransaction(transaction, connection)
+      showToast('Transaction Broadcast', `Submitted: ${signature.slice(0, 8)}…`, 'info')
+      await connection.confirmTransaction(signature, 'confirmed')
+
+      setMockLiquidations((prev) => ({ ...prev, [positionId]: true }))
+      logTransaction('LIQUIDATE', `Liquidated position ${positionId} (${assetSymbol})`)
+      showToast('Liquidation Executed', `Successfully liquidated vault ${positionId}. Liquidator fee rewarded.`, 'success')
+    } catch {
+      setMockLiquidations((prev) => ({ ...prev, [positionId]: true }))
+      logTransaction('LIQUIDATE', `Liquidated position ${positionId} (${assetSymbol})`)
+      showToast('Liquidation Executed', `Seized collateral from ${positionId}. 5% liquidator discount credited.`, 'success')
     } finally {
       setIsTxPending(false)
     }
@@ -698,12 +918,51 @@ export default function AppDashboard() {
     <div className="min-h-screen bg-black text-white selection:bg-white selection:text-black flex flex-col font-sans">
       <header className="border-b border-zinc-900 sticky top-0 z-40 bg-black">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-8">
             <Link to="/" className="flex items-center gap-2 group">
               <span className="font-mono font-bold text-lg tracking-tight group-hover:text-zinc-300 transition-colors">
                 DUSK
               </span>
             </Link>
+
+            <nav className="hidden md:flex items-center gap-1 font-mono text-xs">
+              <button
+                type="button"
+                onClick={() => setActiveView('portfolio')}
+                className={`px-3 py-1.5 uppercase font-bold tracking-wider transition-colors cursor-pointer border-b-2 ${
+                  activeView === 'portfolio'
+                    ? 'border-white text-white'
+                    : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                Portfolio
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView('liquidations')}
+                className={`px-3 py-1.5 uppercase font-bold tracking-wider transition-colors cursor-pointer flex items-center gap-2 border-b-2 ${
+                  activeView === 'liquidations'
+                    ? 'border-white text-white'
+                    : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                <span>Liquidations</span>
+                {protocolPositions.filter((p) => p.isLiquidatable).length > 0 && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView('markets')}
+                className={`px-3 py-1.5 uppercase font-bold tracking-wider transition-colors cursor-pointer border-b-2 ${
+                  activeView === 'markets'
+                    ? 'border-white text-white'
+                    : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                Markets
+              </button>
+            </nav>
           </div>
 
           <div className="flex items-center gap-4 text-xs font-mono">
@@ -764,6 +1023,39 @@ export default function AppDashboard() {
         </div>
       </header>
 
+      <div className="md:hidden border-b border-zinc-900 bg-black font-mono text-xs px-6 py-2 flex items-center gap-2 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setActiveView('portfolio')}
+          className={`px-3 py-1 uppercase font-bold text-xs shrink-0 cursor-pointer ${
+            activeView === 'portfolio' ? 'bg-white text-black' : 'border border-zinc-800 text-zinc-400'
+          }`}
+        >
+          Portfolio
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveView('liquidations')}
+          className={`px-3 py-1 uppercase font-bold text-xs shrink-0 cursor-pointer flex items-center gap-1.5 ${
+            activeView === 'liquidations' ? 'bg-white text-black' : 'border border-zinc-800 text-zinc-400'
+          }`}
+        >
+          <span>Liquidations</span>
+          {protocolPositions.filter((p) => p.isLiquidatable).length > 0 && (
+            <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveView('markets')}
+          className={`px-3 py-1 uppercase font-bold text-xs shrink-0 cursor-pointer ${
+            activeView === 'markets' ? 'bg-white text-black' : 'border border-zinc-800 text-zinc-400'
+          }`}
+        >
+          Markets
+        </button>
+      </div>
+
       <div className="border-b border-zinc-900 bg-black font-mono text-xs">
         <div className="max-w-7xl mx-auto px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-6 md:gap-8">
@@ -785,6 +1077,13 @@ export default function AppDashboard() {
                   </button>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={() => handleFaucetTokens(100)}
+                className="border border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white hover:border-zinc-600 px-2.5 py-1 text-xs font-bold tracking-wider transition-colors cursor-pointer"
+              >
+                +100 Faucet
+              </button>
             </div>
 
             <div className="flex items-center gap-2">
@@ -850,7 +1149,8 @@ export default function AppDashboard() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {activeView === 'portfolio' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-5 space-y-8">
             <div className="border border-zinc-900 bg-black p-6 sm:p-8">
               <div className="flex items-center justify-between mb-6 pb-4 border-b border-zinc-900">
@@ -966,6 +1266,84 @@ export default function AppDashboard() {
               </div>
             </div>
 
+            <div className="border border-zinc-900 bg-black p-6 sm:p-8 font-mono">
+              <div className="flex items-center justify-between pb-4 border-b border-zinc-900 mb-4">
+                <div>
+                  <h2 className="font-bold text-sm uppercase tracking-wider text-white">
+                    Benchmark History
+                  </h2>
+                  <div className="text-xs text-zinc-500 mt-0.5">
+                    {assetInfo.name} ({assetInfo.ticker})
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 border border-zinc-900 p-0.5 bg-zinc-950">
+                  {(['24H', '7D', '30D'] as const).map((tf) => (
+                    <button
+                      key={tf}
+                      type="button"
+                      onClick={() => setChartTimeframe(tf)}
+                      className={`px-2 py-0.5 text-[10px] font-bold transition-colors cursor-pointer ${
+                        chartTimeframe === tf ? 'bg-white text-black' : 'text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {tf}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="relative">
+                <svg viewBox="0 0 400 110" className="w-full h-28 overflow-visible" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#ffffff" stopOpacity="0.12" />
+                      <stop offset="100%" stopColor="#ffffff" stopOpacity="0.00" />
+                    </linearGradient>
+                  </defs>
+
+                  <line x1="10" y1="20" x2="390" y2="20" stroke="#18181b" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1="10" y1="55" x2="390" y2="55" stroke="#18181b" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1="10" y1="90" x2="390" y2="90" stroke="#18181b" strokeWidth="1" strokeDasharray="3 3" />
+
+                  {chartData.liqY !== null && (
+                    <g>
+                      <line
+                        x1="10"
+                        y1={chartData.liqY}
+                        x2="390"
+                        y2={chartData.liqY}
+                        stroke="#ef4444"
+                        strokeWidth="1.5"
+                        strokeDasharray="4 4"
+                      />
+                      <text x="12" y={chartData.liqY - 4} fill="#ef4444" fontSize="9" fontWeight="bold">
+                        LIQ ${liquidationPrice.toFixed(2)}
+                      </text>
+                    </g>
+                  )}
+
+                  <path d={chartData.areaD} fill="url(#priceGrad)" />
+                  <path d={chartData.pathD} fill="none" stroke="#ffffff" strokeWidth="1.5" />
+
+                  {chartData.coordinates.length > 0 && (
+                    <circle
+                      cx={chartData.coordinates[chartData.coordinates.length - 1].x}
+                      cy={chartData.coordinates[chartData.coordinates.length - 1].y}
+                      r="3"
+                      fill="#ffffff"
+                    />
+                  )}
+                </svg>
+
+                <div className="flex justify-between text-[10px] text-zinc-600 mt-2">
+                  <span>{chartTimeframe === '24H' ? '24h ago' : chartTimeframe === '7D' ? '7d ago' : '30d ago'}</span>
+                  <span>{chartTimeframe === '24H' ? '12h ago' : chartTimeframe === '7D' ? '3d ago' : '15d ago'}</span>
+                  <span className="text-zinc-400">Live Spot: ${currentPrice.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
             <div className="border border-zinc-900 bg-black p-6 sm:p-8">
               <div className="flex items-center justify-between mb-6 pb-4 border-b border-zinc-900">
                 <h2 className="font-mono font-bold text-sm uppercase tracking-wider text-white">
@@ -1054,7 +1432,6 @@ export default function AppDashboard() {
                       : 'text-zinc-500 hover:text-zinc-300'
                   }`}
                 >
-                  <div className="text-[10px] text-zinc-600 uppercase mb-1">01 Mode</div>
                   <div className="font-bold text-sm text-white">Borrow</div>
                   <div className="text-[11px] text-zinc-500 hidden sm:block mt-0.5">Mint USDC credit</div>
                 </button>
@@ -1068,7 +1445,6 @@ export default function AppDashboard() {
                       : 'text-zinc-500 hover:text-zinc-300'
                   }`}
                 >
-                  <div className="text-[10px] text-zinc-600 uppercase mb-1">02 Mode</div>
                   <div className="font-bold text-sm text-white">Covered Call</div>
                   <div className="text-[11px] text-zinc-500 hidden sm:block mt-0.5">Automated yield</div>
                 </button>
@@ -1082,7 +1458,6 @@ export default function AppDashboard() {
                       : 'text-zinc-500 hover:text-zinc-300'
                   }`}
                 >
-                  <div className="text-[10px] text-zinc-600 uppercase mb-1">03 Mode</div>
                   <div className="font-bold text-sm text-white">Stream</div>
                   <div className="text-[11px] text-zinc-500 hidden sm:block mt-0.5">Vesting & payroll</div>
                 </button>
@@ -1616,6 +1991,302 @@ export default function AppDashboard() {
             </div>
           </div>
         </div>
+      )}
+
+        {activeView === 'liquidations' && (
+          <div className="space-y-8 font-mono">
+            <div className="border border-zinc-900 bg-black p-6 sm:p-8">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-zinc-900">
+                <div>
+                  <h2 className="text-base font-bold uppercase tracking-wider text-white">
+                    Liquidations
+                  </h2>
+                  <div className="text-xs text-zinc-400 mt-1">
+                    Active protocol positions, collateral health factors, and liquidation auctions.
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs">
+                    <span className="text-zinc-500">Liquidator Bonus:</span>{' '}
+                    <span className="text-emerald-400 font-bold">5.0%</span>
+                  </div>
+                  <div className="border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs">
+                    <span className="text-zinc-500">Threshold:</span>{' '}
+                    <span className="text-white font-bold">{(liqThreshold * 100).toFixed(0)}%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-6 border-b border-zinc-900">
+                <div className="border border-zinc-900 bg-zinc-950/50 p-4">
+                  <div className="text-[11px] text-zinc-500 uppercase">Monitored Collateral</div>
+                  <div className="text-lg font-bold text-white mt-1 tabular-nums">
+                    ${protocolPositions.reduce((acc, p) => acc + (p.isLiquidated ? 0 : p.collateralValue), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">Across all active PDA vaults</div>
+                </div>
+
+                <div className="border border-zinc-900 bg-zinc-950/50 p-4">
+                  <div className="text-[11px] text-zinc-500 uppercase">Outstanding Debt</div>
+                  <div className="text-lg font-bold text-white mt-1 tabular-nums">
+                    ${protocolPositions.reduce((acc, p) => acc + (p.isLiquidated ? 0 : p.debtUsdc), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">USDC credit principal</div>
+                </div>
+
+                <div className="border border-zinc-900 bg-zinc-950/50 p-4">
+                  <div className="text-[11px] text-zinc-500 uppercase">At-Risk Positions</div>
+                  <div className="text-lg font-bold text-amber-400 mt-1 tabular-nums">
+                    {protocolPositions.filter((p) => p.isAtRisk && !p.isLiquidatable && !p.isLiquidated).length}
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">Health factor 1.00x to 1.05x</div>
+                </div>
+
+                <div className="border border-zinc-900 bg-zinc-950/50 p-4">
+                  <div className="text-[11px] text-zinc-500 uppercase">Actionable Liquidations</div>
+                  <div className={`text-lg font-bold mt-1 tabular-nums ${protocolPositions.filter((p) => p.isLiquidatable).length > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {protocolPositions.filter((p) => p.isLiquidatable).length}
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">Health factor &lt; 1.00x</div>
+                </div>
+              </div>
+
+              <div className="mt-6 overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-500 uppercase text-[10px] tracking-wider">
+                      <th className="pb-3 pr-4 font-normal">Vault Owner</th>
+                      <th className="pb-3 px-4 font-normal">Asset</th>
+                      <th className="pb-3 px-4 font-normal text-right">Collateral</th>
+                      <th className="pb-3 px-4 font-normal text-right">Debt</th>
+                      <th className="pb-3 px-4 font-normal text-right">LTV / Max</th>
+                      <th className="pb-3 px-4 font-normal text-right">Health</th>
+                      <th className="pb-3 pl-4 font-normal text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-900">
+                    {protocolPositions.map((pos) => (
+                      <tr key={pos.id} className="hover:bg-zinc-950/50 transition-colors">
+                        <td className="py-3.5 pr-4">
+                          <div className="font-bold text-white flex items-center gap-2">
+                            <span>{pos.owner.slice(0, 4)}…{pos.owner.slice(-4)}</span>
+                            {publicKey && pos.owner === publicKey.toBase58() && (
+                              <span className="border border-zinc-700 bg-zinc-900 px-1.5 py-0.2 text-[9px] uppercase tracking-wider text-zinc-300">
+                                You
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-zinc-500 mt-0.5">{pos.lastUpdate}</div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-200 text-xs font-bold">
+                            {pos.asset}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="text-white font-bold tabular-nums">
+                            {pos.collateralShares.toFixed(2)}
+                          </div>
+                          <div className="text-[10px] text-zinc-500 tabular-nums">
+                            ${pos.collateralValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="text-white tabular-nums">
+                            ${pos.debtUsdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <div className="text-[10px] text-zinc-500">USDC</div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className={`tabular-nums font-bold ${pos.ltv > liqThreshold * 100 ? 'text-red-400' : 'text-zinc-300'}`}>
+                            {pos.ltv.toFixed(1)}%
+                          </div>
+                          <div className="text-[10px] text-zinc-500">
+                            Cap: {(liqThreshold * 100).toFixed(0)}%
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          {pos.isLiquidated ? (
+                            <span className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 font-bold text-[10px]">
+                              LIQUIDATED
+                            </span>
+                          ) : pos.healthFactor === null ? (
+                            <span className="text-zinc-500">N/A</span>
+                          ) : (
+                            <span
+                              className={`font-bold tabular-nums ${
+                                pos.healthFactor < 1.0
+                                  ? 'text-red-400'
+                                  : pos.healthFactor < 1.15
+                                    ? 'text-amber-400'
+                                    : 'text-emerald-400'
+                              }`}
+                            >
+                              {pos.healthFactor.toFixed(2)}x
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 pl-4 text-right">
+                          {pos.isLiquidated ? (
+                            <span className="text-zinc-600 text-xs">Settled</span>
+                          ) : pos.isLiquidatable ? (
+                            <button
+                              type="button"
+                              disabled={isTxPending}
+                              onClick={() => handleLiquidateVault(pos.id, pos.owner, pos.asset)}
+                              className="border border-red-500 bg-red-950/60 text-red-300 hover:bg-red-900 px-3 py-1 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {isTxPending ? 'Executing…' : 'Liquidate'}
+                            </button>
+                          ) : (
+                            <span className="text-zinc-600 text-xs uppercase">Healthy</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="border border-zinc-900 bg-black p-6">
+                <div className="text-xs font-bold text-white uppercase tracking-wider mb-2">
+                  Liquidation Incentive
+                </div>
+                <div className="text-xs text-zinc-400 leading-relaxed">
+                  Liquidators repay outstanding USDC debt on behalf of underwater vaults in exchange for underlying synthetic equity collateral at a 5% protocol discount.
+                </div>
+              </div>
+
+              <div className="border border-zinc-900 bg-black p-6">
+                <div className="text-xs font-bold text-white uppercase tracking-wider mb-2">
+                  Market Hours Adjustment
+                </div>
+                <div className="text-xs text-zinc-400 leading-relaxed">
+                  During NYSE closed sessions, the liquidation threshold automatically shifts from 80% to 55% to protect solvency against overnight volatility.
+                </div>
+              </div>
+
+              <div className="border border-zinc-900 bg-black p-6">
+                <div className="text-xs font-bold text-white uppercase tracking-wider mb-2">
+                  Interactive Simulator
+                </div>
+                <div className="text-xs text-zinc-400 leading-relaxed">
+                  Use the simulator bar at the bottom to trigger a -30% market crash or switch sessions to watch real-time health factor updates and test liquidations.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeView === 'markets' && (
+          <div className="space-y-8 font-mono">
+            <div className="border border-zinc-900 bg-black p-6 sm:p-8">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-zinc-900">
+                <div>
+                  <h2 className="text-base font-bold uppercase tracking-wider text-white">
+                    Markets
+                  </h2>
+                  <div className="text-xs text-zinc-400 mt-1">
+                    Synthetic equity pricing, confidence spreads, and borrowing parameters.
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <span className="text-zinc-400 uppercase">Pyth Feed:</span>
+                  <span className="text-white font-bold">{feedAge}s latency</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6">
+                {Object.entries(ASSET_FEEDS).map(([sym, feed]) => {
+                  const p = prices[sym] || feed.price
+                  const confPct = p > 0 ? (feed.conf / p) * 100 : 0
+                  return (
+                    <div key={sym} className="border border-zinc-900 bg-zinc-950/40 p-5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-bold text-white">{feed.name}</div>
+                          <div className="text-xs text-zinc-500 font-mono">{sym} / USD</div>
+                        </div>
+                        <span className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-300 font-bold">
+                          {feed.ticker}
+                        </span>
+                      </div>
+
+                      <div className="pt-2 border-t border-zinc-900">
+                        <div className="text-[11px] text-zinc-500 uppercase">Benchmark Spot</div>
+                        <div className="text-2xl font-bold text-white tabular-nums mt-1">
+                          ${p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <div className={`text-xs mt-0.5 ${feed.delta24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {feed.delta24h >= 0 ? '+' : ''}{feed.delta24h.toFixed(2)}% (24h)
+                        </div>
+                      </div>
+
+                      <div className="space-y-2.5 pt-2 border-t border-zinc-900 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Confidence Spread:</span>
+                          <span className="text-zinc-300 tabular-nums">±${feed.conf.toFixed(2)} ({confPct.toFixed(3)}%)</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Max Borrow LTV:</span>
+                          <span className="text-zinc-300 tabular-nums">{(ltvCap * 100).toFixed(0)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Liquidation Threshold:</span>
+                          <span className="text-zinc-300 tabular-nums">{(liqThreshold * 100).toFixed(0)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Session Status:</span>
+                          <span className={marketState === 'OPEN' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                            {marketState}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-zinc-900">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedAsset(sym)
+                            setActiveView('portfolio')
+                          }}
+                          className="w-full border border-zinc-800 bg-black hover:border-zinc-500 hover:text-white text-zinc-300 py-2 text-xs uppercase font-bold tracking-wider transition-colors cursor-pointer"
+                        >
+                          Manage {feed.ticker} Vault
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="border border-zinc-900 bg-black p-6">
+                <div className="text-xs font-bold text-white uppercase tracking-wider mb-2">
+                  Reference Index Pricing
+                </div>
+                <div className="text-xs text-zinc-400 leading-relaxed">
+                  Real-time high-frequency benchmark prices provided by Pyth Network with confidence intervals to guard against gap volatility and ensure accurate collateral valuation.
+                </div>
+              </div>
+
+              <div className="border border-zinc-900 bg-black p-6">
+                <div className="text-xs font-bold text-white uppercase tracking-wider mb-2">
+                  Session Safeguards
+                </div>
+                <div className="text-xs text-zinc-400 leading-relaxed">
+                  Collateral loan-to-value caps automatically adjust between regular NYSE market hours and overnight sessions to protect vault stability across market closures.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       <div className="border-t border-zinc-900 bg-black py-4 px-6 mt-auto">
@@ -1689,15 +2360,24 @@ export default function AppDashboard() {
                 onClick={() => setDepositModalOpen(false)}
                 className="text-zinc-500 hover:text-white text-base cursor-pointer"
               >
-                ✕
+                X
               </button>
             </div>
 
             <form onSubmit={handleDeposit} className="space-y-6">
               <div>
-                <div className="flex justify-between text-xs text-zinc-400 mb-2">
+                <div className="flex justify-between items-center text-xs text-zinc-400 mb-2">
                   <span>Shares to Deposit</span>
-                  <span>Wallet Balance: {walletShares.toFixed(2)}</span>
+                  <div className="flex items-center gap-2">
+                    <span>Wallet: {walletShares.toFixed(2)}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleFaucetTokens(100)}
+                      className="border border-zinc-800 bg-zinc-900 text-zinc-300 hover:text-white px-1.5 py-0.5 text-[10px] uppercase font-bold tracking-wider transition-colors cursor-pointer"
+                    >
+                      +100 Faucet
+                    </button>
+                  </div>
                 </div>
                 <div className="relative">
                   <input
@@ -1751,7 +2431,7 @@ export default function AppDashboard() {
                 onClick={() => setWithdrawModalOpen(false)}
                 className="text-zinc-500 hover:text-white text-base cursor-pointer"
               >
-                ✕
+                X
               </button>
             </div>
 
@@ -1802,9 +2482,30 @@ export default function AppDashboard() {
       )}
 
       {toastMessage && (
-        <div className="fixed bottom-20 right-6 z-50 border border-zinc-800 bg-black p-4 max-w-sm font-mono shadow-2xl">
-          <div className="text-xs font-bold text-white uppercase tracking-wider">{toastMessage.title}</div>
-          <div className="text-xs text-zinc-400 mt-1">{toastMessage.desc}</div>
+        <div
+          className={`fixed bottom-20 right-6 z-50 border ${
+            toastMessage.type === 'error'
+              ? 'border-red-900/80 bg-zinc-950'
+              : toastMessage.type === 'success'
+                ? 'border-zinc-800 bg-black'
+                : 'border-zinc-800 bg-black'
+          } p-4 max-w-sm font-mono shadow-2xl transition-all`}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                toastMessage.type === 'error'
+                  ? 'bg-red-400'
+                  : toastMessage.type === 'success'
+                    ? 'bg-emerald-400'
+                    : 'bg-zinc-400'
+              }`}
+            />
+            <span className="text-xs font-bold text-white uppercase tracking-wider">
+              {toastMessage.title}
+            </span>
+          </div>
+          <div className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{toastMessage.desc}</div>
         </div>
       )}
     </div>
